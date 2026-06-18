@@ -1,0 +1,42 @@
+import { useTranslation } from 'react-i18next';
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { api, ApiError } from './api';
+import { AppShell } from './components/AppShell';
+import { Login } from './pages/Login';
+import { Dashboard } from './pages/Dashboard';
+import { Admin } from './pages/Admin';
+import { RequestDetail } from './pages/RequestDetail';
+import { Spinner } from './ui';
+
+export default function App() {
+  const { t } = useTranslation();
+  const meQ = useQuery({
+    queryKey: ['me'],
+    queryFn: api.me,
+    retry: (count, err) => !(err instanceof ApiError && err.status === 401) && count < 2,
+  });
+
+  if (meQ.isLoading)
+    return (
+      <div className="grid min-h-full place-items-center text-muted-foreground">
+        <span className="flex items-center gap-2 text-sm">
+          <Spinner /> {t('common.loading')}
+        </span>
+      </div>
+    );
+
+  if (meQ.isError || !meQ.data) return <Login />;
+
+  const user = meQ.data;
+  return (
+    <AppShell user={user}>
+      <Routes>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/requests/:id" element={<RequestDetail />} />
+        <Route path="/admin" element={user.role === 'admin' ? <Admin /> : <Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </AppShell>
+  );
+}

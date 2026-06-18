@@ -1,0 +1,47 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "git-vm-portal",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-06-01",
+  "observability": { "enabled": true },
+
+  "assets": {
+    "directory": "./web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "git_vm_portal",
+      "database_id": "86b47d2d-62e8-4162-a3cc-f7a8a02068c6"
+    }
+  ],
+
+  // Non-secret config. Secrets (AWS keys, Entra client secret, session secret)
+  // are set with `wrangler secret put` — never committed here.
+  "vars": {
+    "ALLOWED_EMAIL_DOMAINS": "satom.ch,git.swiss",
+    "ADMIN_EMAILS": "thomas.prudhomme@satom.ch,thomas.prudhomme@git.swiss",
+    "ENTRA_TENANT_ID": "33a7a298-4cf4-4f62-914a-d32bba54de5a",
+    "ENTRA_CLIENT_ID": "0bfcdbd6-a60e-49df-a5b1-80ce3bcb7126",
+
+    "AWS_REGION": "eu-central-2",
+    "AWS_AMI_ID": "ami-0fd7f34c2a7d8427b",
+    "AWS_SUBNET_ID": "subnet-0247cdf408e6fb4d1",
+    "AWS_SECURITY_GROUP_ID": "sg-0f842f10ca3c7b2d1",
+    "AWS_KEY_NAME": "",
+
+    "APP_URL": "https://git-vm-portal.thomas-prudhomme.workers.dev",
+    "MAIL_ENABLED": "true",
+    "EMAILJS_PUBLIC_KEY": "KlKcUV9eCQouP22hT",
+    "EMAILJS_SERVICE_ID": "service_aeuc86a",
+    "EMAILJS_TEMPLATE_ID": "template_za3761l"
+  },
+
+  "triggers": {
+    // Poll provisioning VMs every minute: fetch public IP, mark active, email user.
+    "crons": ["*/1 * * * *"]
+  }
+}

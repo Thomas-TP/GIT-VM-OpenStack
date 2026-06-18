@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+web/node_modules/
+
+# build output
+dist/
+web/dist/
+.wrangler/
+
+# secrets / local env (NEVER commit)
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+*.pem
+*.key
+
+# misc
+.DS_Store
+*.log
+.idea/
+.vscode/
+coverage/
