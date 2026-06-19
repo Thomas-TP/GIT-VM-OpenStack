@@ -10,12 +10,13 @@ import {
   isValidPerf,
   isValidStorage,
   isValidOs,
-  estimateMonthlyUsd,
   STORAGE_USD_GB_MONTH,
 } from './presets';
+import { reportError } from './sentry';
 import {
   upsertUser,
   audit,
+  countAudit,
   createRequest,
   countRecentRequests,
   listRequestsForUser,
@@ -80,6 +81,25 @@ const apiAdmin = async (c: any, next: any) => {
   c.set('user', user);
   await next();
 };
+
+// Create the SSH key + EC2 instance for a request. Shared by approve + retry.
+async function provisionRequest(env: Env, req: any): Promise<string> {
+  const perf = PERF[req.preset];
+  const os = OS[req.os ?? ''];
+  const storage = STORAGE[req.storage ?? ''];
+  if (!perf || !os || !storage) throw new Error('invalid preset composition');
+  const kp = await createKeyPair(env, req.id);
+  const encKey = await encryptSecret(env.SESSION_SECRET, kp.privateKey);
+  const { instanceId } = await launchInstance(env, {
+    requestId: req.id,
+    keyName: kp.keyName,
+    instanceType: perf.instanceType,
+    amiId: os.ami,
+    sizeGb: storage.sizeGb,
+  });
+  await createVm(env, req.id, instanceId, kp.keyName, encKey, os.sshUser);
+  return instanceId;
+}
 
 // ---- OIDC (browser redirects) ------------------------------------------
 app.get('/auth/login', async (c) => {
@@ -350,21 +370,7 @@ app.post('/api/admin/requests/:id/approve', apiAdmin, async (c) => {
   await setRequestStatus(c.env, id, 'provisioning', admin.email);
   await audit(c.env, admin.email, 'request.approve', `req:${id}`);
   try {
-    const perf = PERF[req.preset];
-    const os = OS[req.os ?? ''];
-    const storage = STORAGE[req.storage ?? ''];
-    if (!perf || !os || !storage) throw new Error('invalid preset composition');
-
-    const kp = await createKeyPair(c.env, id);
-    const encKey = await encryptSecret(c.env.SESSION_SECRET, kp.privateKey);
-    const { instanceId } = await launchInstance(c.env, {
-      requestId: id,
-      keyName: kp.keyName,
-      instanceType: perf.instanceType,
-      amiId: os.ami,
-      sizeGb: storage.sizeGb,
-    });
-    await createVm(c.env, id, instanceId, kp.keyName, encKey, os.sshUser);
+    const instanceId = await provisionRequest(c.env, req);
     await audit(c.env, admin.email, 'vm.launch', `req:${id}`, instanceId);
     c.executionCtx.waitUntil(notifyUserApproved(c.env, req.user_email, id));
     return c.json({ ok: true, status: 'provisioning' });
@@ -461,10 +467,41 @@ async function scheduledStop(env: Env): Promise<void> {
   }
 }
 
+// Auto-retry provisioning for failed requests that never got an instance (max 3).
+async function retryFailed(env: Env): Promise<void> {
+  const failed = await listRequestsByStatus(env, 'failed');
+  for (const req of failed) {
+    const vm = await getVmByRequest(env, req.id);
+    if (vm) continue; // an instance already exists
+    if ((await countAudit(env, `req:${req.id}`, 'vm.launch.failed')) >= 3) continue;
+    try {
+      await setRequestStatus(env, req.id, 'provisioning');
+      const instanceId = await provisionRequest(env, req);
+      await audit(env, 'system', 'vm.launch.retry', `req:${req.id}`, instanceId);
+    } catch (e: any) {
+      await setRequestStatus(env, req.id, 'failed', undefined, `retry: ${e.message}`);
+      await audit(env, 'system', 'vm.launch.failed', `req:${req.id}`, e.message);
+    }
+  }
+}
+
+app.onError((err, c) => {
+  reportError(c.env.SENTRY_DSN, err, c.executionCtx, { path: c.req.path });
+  return c.json({ error: 'internal' }, 500);
+});
+
 export default {
   fetch: app.fetch,
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
-    if (event.cron === '0 19 * * *') ctx.waitUntil(scheduledStop(env));
-    else ctx.waitUntil(reconcile(env));
+    if (event.cron === '0 19 * * *') {
+      ctx.waitUntil(scheduledStop(env));
+    } else {
+      ctx.waitUntil(
+        (async () => {
+          await reconcile(env);
+          await retryFailed(env);
+        })()
+      );
+    }
   },
 } satisfies ExportedHandler<Env>;

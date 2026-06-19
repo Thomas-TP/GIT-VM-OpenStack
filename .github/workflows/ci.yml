@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install (worker)
+        run: npm install
+      - name: Install (web)
+        run: npm --prefix web install
+
+      - name: Typecheck worker
+        run: npm run typecheck
+      - name: Typecheck web
+        run: npm --prefix web run typecheck
+
+      - name: Lint
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build web
+        run: npm --prefix web run build

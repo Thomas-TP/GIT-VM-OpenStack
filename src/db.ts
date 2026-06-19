@@ -66,6 +66,13 @@ export async function metrics(env: Env) {
   return { total, successRate, failed, avgProvisionSeconds: Math.round(avg?.s ?? 0) };
 }
 
+export async function countAudit(env: Env, target: string, action: string): Promise<number> {
+  const res = await env.DB.prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE target = ?1 AND action = ?2`)
+    .bind(target, action)
+    .first<{ n: number }>();
+  return res?.n ?? 0;
+}
+
 export async function audit(env: Env, actor: string, action: string, target?: string, detail?: string) {
   await env.DB.prepare(`INSERT INTO audit_log (actor, action, target, detail) VALUES (?1, ?2, ?3, ?4)`)
     .bind(actor, action, target ?? null, detail ?? null)

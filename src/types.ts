@@ -17,6 +17,7 @@ export interface Env {
   APP_URL: string;
   MAIL_ENABLED: string; // "true" | "false"
   SCHEDULED_STOP: string; // "true" | "false" — stop running VMs at 19:00 UTC
+  SENTRY_DSN?: string; // optional error reporting
   EMAILJS_PUBLIC_KEY: string;
   EMAILJS_SERVICE_ID: string;
   EMAILJS_TEMPLATE_ID: string;
