@@ -50,6 +50,7 @@ export const api = {
   live: (id: number) =>
     req<{ state: string; publicIp: string | null; launchTime: string | null }>(`/api/requests/${id}/live`),
   keyUrl: (id: number) => `/api/requests/${id}/key`,
+  password: (id: number) => req<{ user: string; password: string }>(`/api/requests/${id}/password`),
 
   adminList: (status?: Status | '') =>
     req<{ requests: VmRequest[] }>(`/api/admin/requests${status ? `?status=${status}` : ''}`).then(

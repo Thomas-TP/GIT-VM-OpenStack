@@ -93,13 +93,27 @@ export async function notifyUserExpired(env: Env, to: string, reqId: number) {
   await sendMail(env, { to, subject: `VM #${reqId} expirée (arrêtée)`, title: 'VM expirée — arrêtée ⏹️', message });
 }
 
-export async function notifyUserReady(env: Env, to: string, reqId: number, ip: string, sshUser = 'ubuntu') {
+export async function notifyUserReady(
+  env: Env,
+  to: string,
+  reqId: number,
+  ip: string,
+  loginUser = 'ubuntu',
+  connect: 'ssh' | 'rdp' = 'ssh'
+) {
   const message =
-    `Ta VM #${reqId} est active et prête à l'emploi. 🎉\n\n` +
-    `IP publique : ${ip}\n` +
-    `Connexion SSH :\n` +
-    `ssh -i vm-portal-req-${reqId}.pem ${sshUser}@${ip}\n\n` +
-    `Télécharge d'abord ta clé privée depuis le portail (bouton ci-dessous). ` +
-    `La clé n'est accessible que par toi.`;
+    connect === 'rdp'
+      ? `Ta VM Windows #${reqId} est active et prête à l'emploi. 🎉\n\n` +
+        `IP publique : ${ip}\n` +
+        `Connexion Bureau à distance (RDP) :\n` +
+        `Utilisateur : ${loginUser}\n` +
+        `Mot de passe : récupère-le depuis le portail (il n'est visible que par toi).\n\n` +
+        `Ouvre le portail pour les instructions MobaXterm / Bureau à distance.`
+      : `Ta VM #${reqId} est active et prête à l'emploi. 🎉\n\n` +
+        `IP publique : ${ip}\n` +
+        `Connexion SSH :\n` +
+        `ssh -i vm-portal-req-${reqId}.pem ${loginUser}@${ip}\n\n` +
+        `Télécharge d'abord ta clé privée depuis le portail (bouton ci-dessous). ` +
+        `La clé n'est accessible que par toi.`;
   await sendMail(env, { to, subject: `VM #${reqId} prête`, title: 'Ta VM est prête 🚀', message });
 }

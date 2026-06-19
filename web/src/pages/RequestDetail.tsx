@@ -4,20 +4,10 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import { fmtDate, fmtUptime } from '../lib/format';
-import {
-  Button,
-  Card,
-  IconBack,
-  IconCopy,
-  IconDownload,
-  IconPlay,
-  IconReboot,
-  IconStop,
-  IconTrash,
-  Modal,
-  Spinner,
-} from '../ui';
+import { Button, Card, IconBack, IconPlay, IconReboot, IconStop, IconTrash, Modal, Spinner } from '../ui';
 import { StatusBadge } from '../components/StatusBadge';
+import { OsIcon } from '../components/OsIcon';
+import { ConnectionGuide } from '../components/ConnectionGuide';
 import { Comments } from '../components/Comments';
 import { useToast } from '../toast';
 
@@ -31,27 +21,6 @@ function Row({ label, children, mono }: { label: string; children: React.ReactNo
 }
 function Eyebrow({ children }: { children: React.ReactNode }) {
   return <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{children}</h2>;
-}
-
-function CopyCmd({ cmd }: { cmd: string }) {
-  const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 p-1 pl-3">
-      <code className="flex-1 overflow-x-auto whitespace-nowrap py-1.5 font-mono text-xs text-foreground">{cmd}</code>
-      <button
-        onClick={() => {
-          navigator.clipboard.writeText(cmd);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        }}
-        className="flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition hover:text-foreground"
-      >
-        <IconCopy className="h-3.5 w-3.5" />
-        {copied ? t('common.copied') : t('common.copy')}
-      </button>
-    </div>
-  );
 }
 
 export function RequestDetail() {
@@ -111,25 +80,32 @@ export function RequestDetail() {
   // "expired" is derived from expired_at (the DB status stays 'active'). See ADR 0004.
   const effStatus = r.expired_at ? 'expired' : r.status;
   const cat = presetsQ.data;
-  const perfLabel = cat?.perf.find((p) => p.id === r.preset)?.label ?? r.preset;
-  const storageLabel = cat?.storage.find((s) => s.id === r.storage)?.label ?? r.storage ?? '—';
-  const osLabel = cat?.os.find((o) => o.id === r.os)?.label ?? r.os ?? '—';
-  const sshUser = r.ssh_user ?? 'ubuntu';
+  const perfDef = cat?.perf.find((p) => p.id === r.preset);
+  const storageDef = cat?.storage.find((s) => s.id === r.storage);
+  const osDef = cat?.os.find((o) => o.id === r.os);
+  const connect = (r.connect_method as 'ssh' | 'rdp') ?? osDef?.connect ?? 'ssh';
+  const sshUser = r.ssh_user ?? osDef?.sshUser ?? 'ubuntu';
+  const keyName = r.ssh_key_name ?? `vm-portal-req-${r.id}`;
   const vmState = liveQ.data?.state ?? r.vm_state ?? 'none';
   const ip = liveQ.data?.publicIp ?? r.public_ip ?? null;
   const canTerm = r.status === 'active' || r.status === 'provisioning' || r.status === 'failed';
-  const cmd = ip ? `ssh -i ${r.ssh_key_name ?? `vm-portal-req-${r.id}`}.pem ${sshUser}@${ip}` : '';
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6">
       <Link to="/" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition hover:text-foreground">
         <IconBack className="h-4 w-4" /> {t('common.back')}
       </Link>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">{t('detail.title', { id: r.id })}</h1>
-          <StatusBadge status={effStatus} />
+          {osDef && <OsIcon family={osDef.family} className="h-10 w-10" />}
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-2xl font-semibold tracking-tight">{t('detail.title', { id: r.id })}</h1>
+              <StatusBadge status={effStatus} />
+            </div>
+            <p className="text-sm text-muted-foreground">{osDef?.label ?? r.os}</p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {r.status === 'active' && vmState === 'stopped' && !r.expired_at && (
@@ -156,13 +132,29 @@ export function RequestDetail() {
       </div>
 
       <div className="grid gap-5 md:grid-cols-2">
+        {/* Specs */}
+        <Card className="p-5">
+          <Eyebrow>{t('detail.specs')}</Eyebrow>
+          <div className="divide-y divide-border">
+            <Row label={t('form.os')}>
+              <span className="inline-flex items-center gap-1.5">
+                {osDef && <OsIcon family={osDef.family} className="h-4 w-4" />}
+                {osDef?.label ?? r.os ?? '—'}
+              </span>
+            </Row>
+            <Row label={t('detail.instanceType')} mono>{perfDef?.instanceType ?? r.preset}</Row>
+            <Row label={t('detail.cpu')}>{perfDef ? `${perfDef.vcpu} vCPU` : '—'}</Row>
+            <Row label={t('detail.memory')}>{perfDef ? `${perfDef.ramGb} Go` : '—'}</Row>
+            <Row label={t('detail.disk')}>{storageDef?.label ?? r.storage ?? '—'}</Row>
+            <Row label={t('detail.connectMethod')}>{connect === 'rdp' ? 'RDP' : 'SSH'}</Row>
+            <Row label={t('common.region')} mono>{r.region}</Row>
+          </div>
+        </Card>
+
+        {/* Request / lifecycle */}
         <Card className="p-5">
           <Eyebrow>{t('detail.overview')}</Eyebrow>
           <div className="divide-y divide-border">
-            <Row label={t('table.type')}>{perfLabel}</Row>
-            <Row label={t('form.storage')}>{storageLabel}</Row>
-            <Row label={t('form.os')}>{osLabel}</Row>
-            <Row label={t('common.region')} mono>{r.region}</Row>
             <Row label={t('table.purpose')}>{r.purpose}</Row>
             <Row label={t('detail.requestedBy')}>{r.user_email}</Row>
             <Row label={t('detail.createdAt')}>{fmtDate(r.created_at)}</Row>
@@ -170,53 +162,38 @@ export function RequestDetail() {
             <Row label={t('detail.endDate')}>{fmtDate(r.end_date)}</Row>
             {r.decided_by && <Row label={t('detail.decidedBy')}>{r.decided_by}</Row>}
             {r.admin_note && <Row label={t('detail.adminNote')}>{r.admin_note}</Row>}
+            {r.status === 'active' && (
+              <Row label={t('detail.state')}>
+                <span className="inline-flex items-center gap-1.5">
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      vmState === 'running' ? 'bg-emerald-500' : vmState === 'stopped' ? 'bg-zinc-400' : 'bg-amber-500'
+                    }`}
+                  />
+                  {t(`vmState.${vmState}`, vmState)}
+                </span>
+              </Row>
+            )}
+            {vmState === 'running' && liveQ.data?.launchTime && (
+              <Row label={t('detail.uptime')}>{fmtUptime(liveQ.data.launchTime)}</Row>
+            )}
+            {ip && <Row label={t('detail.ip')} mono>{ip}</Row>}
+            {r.aws_instance_id && <Row label={t('detail.instance')} mono>{r.aws_instance_id}</Row>}
           </div>
         </Card>
-
-        <Card className="p-5">
-          <Eyebrow>{t('detail.connection')}</Eyebrow>
-          {r.status === 'active' ? (
-            <div className="space-y-4">
-              <div className="divide-y divide-border">
-                <Row label={t('detail.state')}>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span
-                      className={`h-1.5 w-1.5 rounded-full ${
-                        vmState === 'running' ? 'bg-emerald-500' : vmState === 'stopped' ? 'bg-zinc-400' : 'bg-amber-500'
-                      }`}
-                    />
-                    {t(`vmState.${vmState}`, vmState)}
-                  </span>
-                </Row>
-                {vmState === 'running' && liveQ.data?.launchTime && (
-                  <Row label={t('detail.uptime')}>{fmtUptime(liveQ.data.launchTime)}</Row>
-                )}
-                {ip && <Row label={t('detail.ip')} mono>{ip}</Row>}
-                {r.aws_instance_id && <Row label={t('detail.instance')} mono>{r.aws_instance_id}</Row>}
-              </div>
-
-              {vmState === 'running' && ip ? (
-                <>
-                  <div>
-                    <p className="mb-1.5 text-xs font-medium text-muted-foreground">{t('detail.sshCommand')}</p>
-                    <CopyCmd cmd={cmd} />
-                  </div>
-                  <a href={api.keyUrl(r.id)} className="inline-flex">
-                    <Button variant="secondary">
-                      <IconDownload className="h-4 w-4" /> {t('access.downloadKey')}
-                    </Button>
-                  </a>
-                  <p className="text-xs leading-relaxed text-muted-foreground">{t('detail.keyHint')}</p>
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground">{t('detail.notReady')}</p>
-              )}
-            </div>
-          ) : (
-            <p className="py-10 text-center text-sm text-muted-foreground">{t('detail.notReady')}</p>
-          )}
-        </Card>
       </div>
+
+      {/* Connection */}
+      <Card className="p-5">
+        <Eyebrow>{t('guide.title')}</Eyebrow>
+        {r.status === 'active' && ip && vmState !== 'stopped' ? (
+          <ConnectionGuide id={r.id} ip={ip} user={sshUser} keyName={keyName} connect={connect} />
+        ) : r.status === 'active' && vmState === 'stopped' ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">{t('detail.notReady')}</p>
+        ) : (
+          <p className="py-6 text-center text-sm text-muted-foreground">{t('detail.notReady')}</p>
+        )}
+      </Card>
 
       <Comments requestId={rid} />
 

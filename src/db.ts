@@ -159,19 +159,38 @@ export interface RequestDetail extends VmRequestRow {
   aws_instance_id?: string | null;
   vm_state?: string | null;
   has_key?: number;
+  connect_method?: string | null;
+  has_password?: number;
 }
 
 export async function getRequestDetail(env: Env, id: number): Promise<RequestDetail | null> {
   return await env.DB.prepare(
     `SELECT r.*, v.public_ip AS public_ip, v.ssh_key_name AS ssh_key_name,
             v.ssh_user AS ssh_user, v.aws_instance_id AS aws_instance_id, v.state AS vm_state,
-            (v.ssh_private_key IS NOT NULL) AS has_key
+            v.connect_method AS connect_method,
+            (v.ssh_private_key IS NOT NULL) AS has_key,
+            (v.admin_password IS NOT NULL) AS has_password
        FROM vm_requests r
        LEFT JOIN vms v ON v.request_id = r.id
       WHERE r.id = ?1`
   )
     .bind(id)
     .first<RequestDetail>();
+}
+
+// Owner/admin Windows password retrieval. Returns the encrypted password + the
+// request owner so the caller can enforce access (mirrors getKeyForRequest).
+export async function getPasswordForRequest(
+  env: Env,
+  requestId: number
+): Promise<{ user_email: string; admin_password: string | null; ssh_user: string | null } | null> {
+  return await env.DB.prepare(
+    `SELECT r.user_email, v.admin_password, v.ssh_user
+       FROM vm_requests r JOIN vms v ON v.request_id = r.id
+      WHERE r.id = ?1`
+  )
+    .bind(requestId)
+    .first();
 }
 
 export async function countByStatus(env: Env): Promise<Record<string, number>> {
@@ -192,13 +211,15 @@ export async function createVm(
   instanceId: string,
   keyName: string,
   encryptedPrivateKey: string,
-  sshUser: string
+  sshUser: string,
+  connectMethod: 'ssh' | 'rdp' = 'ssh',
+  encryptedAdminPassword: string | null = null
 ): Promise<void> {
   await env.DB.prepare(
-    `INSERT INTO vms (request_id, aws_instance_id, state, ssh_key_name, ssh_private_key, ssh_user)
-     VALUES (?1, ?2, 'pending', ?3, ?4, ?5)`
+    `INSERT INTO vms (request_id, aws_instance_id, state, ssh_key_name, ssh_private_key, ssh_user, connect_method, admin_password)
+     VALUES (?1, ?2, 'pending', ?3, ?4, ?5, ?6, ?7)`
   )
-    .bind(requestId, instanceId, keyName, encryptedPrivateKey, sshUser)
+    .bind(requestId, instanceId, keyName, encryptedPrivateKey, sshUser, connectMethod, encryptedAdminPassword)
     .run();
 }
 
@@ -236,12 +257,13 @@ export interface ActiveVm {
   aws_instance_id: string | null;
   ssh_user: string | null;
   state: string | null;
+  connect_method: string | null;
 }
 
 // Requests that have (or are getting) a live instance — for reconcile / scheduled stop.
 export async function listActiveVms(env: Env): Promise<ActiveVm[]> {
   const res = await env.DB.prepare(
-    `SELECT r.id, r.status, r.user_email, v.aws_instance_id, v.ssh_user, v.state
+    `SELECT r.id, r.status, r.user_email, v.aws_instance_id, v.ssh_user, v.state, v.connect_method
        FROM vm_requests r JOIN vms v ON v.request_id = r.id
       WHERE r.status IN ('provisioning', 'active')`
   ).all<ActiveVm>();
