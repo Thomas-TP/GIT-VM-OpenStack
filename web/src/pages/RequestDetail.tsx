@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import { fmtDate, fmtUptime } from '../lib/format';
-import { Button, Card, IconBack, IconPlay, IconReboot, IconStop, IconTrash, Modal, Spinner } from '../ui';
+import { displayStatus } from '../lib/status';
+import { Button, Card, IconBack, IconPlay, IconReboot, IconStop, IconTrash, Modal, Skeleton, Spinner } from '../ui';
 import { StatusBadge } from '../components/StatusBadge';
 import { OsIcon } from '../components/OsIcon';
 import { ConnectionGuide } from '../components/ConnectionGuide';
@@ -63,23 +64,37 @@ export function RequestDetail() {
 
   if (q.isLoading)
     return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Spinner /> {t('common.loading')}
+      <div className="mx-auto max-w-4xl space-y-6">
+        <Skeleton className="h-4 w-24" />
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-10 w-10 rounded-lg" />
+          <div className="space-y-2">
+            <Skeleton className="h-6 w-44" />
+            <Skeleton className="h-4 w-28" />
+          </div>
+        </div>
+        <div className="grid gap-5 md:grid-cols-2">
+          <Skeleton className="h-64 rounded-xl" />
+          <Skeleton className="h-64 rounded-xl" />
+        </div>
+        <Skeleton className="h-40 rounded-xl" />
       </div>
     );
   if (q.isError || !q.data)
     return (
-      <div className="space-y-4">
-        <Link to="/" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <div className="mx-auto max-w-4xl space-y-4">
+        <Link to="/" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition hover:text-foreground">
           <IconBack className="h-4 w-4" /> {t('common.back')}
         </Link>
-        <p className="text-sm text-red-500">{t('common.error')}</p>
+        <Card className="flex flex-col items-center gap-2 p-12 text-center">
+          <p className="font-medium">{t('common.error')}</p>
+          <p className="text-sm text-muted-foreground">{t('detail.notFound')}</p>
+        </Card>
       </div>
     );
 
   const r = q.data;
-  // "expired" is derived from expired_at (the DB status stays 'active'). See ADR 0004.
-  const effStatus = r.expired_at ? 'expired' : r.status;
+  const effStatus = displayStatus(r);
   const cat = presetsQ.data;
   const perfDef = cat?.perf.find((p) => p.id === r.preset);
   const storageDef = cat?.storage.find((s) => s.id === r.storage);

@@ -6,6 +6,7 @@ const dot: Record<Status, string> = {
   approved: 'bg-blue-500',
   provisioning: 'bg-blue-500',
   active: 'bg-emerald-500',
+  stopped: 'bg-zinc-400',
   rejected: 'bg-red-500',
   failed: 'bg-red-500',
   terminated: 'bg-zinc-400',

@@ -53,6 +53,7 @@ export type Status =
   | 'rejected'
   | 'provisioning'
   | 'active'
+  | 'stopped'
   | 'failed'
   | 'terminated'
   | 'expired';

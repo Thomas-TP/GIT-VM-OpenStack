@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import type { PerfPreset, Status, VmRequest } from '../types';
+import type { PerfPreset, VmRequest } from '../types';
 import { fmtDate } from '../lib/format';
+import { displayStatus } from '../lib/status';
 import { StatusBadge } from './StatusBadge';
 import { IconCheck, IconDownload, IconServer, IconTrash, IconX, Spinner } from '../ui';
 import { api } from '../api';
@@ -44,8 +45,7 @@ function IconBtn({
 export function RequestsTable({ rows, presets, admin, busyId, onApprove, onReject, onTerminate }: Props) {
   const { t } = useTranslation();
   const label = (id: string) => presets[id]?.label ?? id;
-  // "expired" is derived from expired_at (status stays 'active' in the DB).
-  const eff = (r: VmRequest): Status => (r.expired_at ? 'expired' : r.status);
+  const eff = displayStatus;
 
   const access = (r: VmRequest) => {
     if (r.status === 'active' && r.public_ip)
@@ -98,35 +98,35 @@ export function RequestsTable({ rows, presets, admin, busyId, onApprove, onRejec
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                <th className="px-4 py-3 font-medium">{t('table.id')}</th>
-                {admin && <th className="px-4 py-3 font-medium">{t('table.user')}</th>}
-                <th className="px-4 py-3 font-medium">{t('table.type')}</th>
-                <th className="px-4 py-3 font-medium">{t('table.purpose')}</th>
-                <th className="px-4 py-3 font-medium">{t('table.expires')}</th>
-                <th className="px-4 py-3 font-medium">{t('table.status')}</th>
-                <th className="px-4 py-3 font-medium">{admin ? t('table.created') : t('table.access')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('common.actions')}</th>
+                <th className="px-3.5 py-3 font-medium">{t('table.id')}</th>
+                {admin && <th className="px-3.5 py-3 font-medium">{t('table.user')}</th>}
+                <th className="px-3.5 py-3 font-medium">{t('table.type')}</th>
+                <th className={`px-3.5 py-3 font-medium ${admin ? 'hidden 2xl:table-cell' : ''}`}>{t('table.purpose')}</th>
+                <th className={`px-3.5 py-3 font-medium ${admin ? 'hidden xl:table-cell' : ''}`}>{t('table.expires')}</th>
+                <th className="px-3.5 py-3 font-medium">{t('table.status')}</th>
+                <th className={`px-3.5 py-3 font-medium ${admin ? 'hidden lg:table-cell' : ''}`}>{admin ? t('table.created') : t('table.access')}</th>
+                <th className="px-3.5 py-3 text-right font-medium">{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id} className="border-b border-border/70 transition last:border-0 hover:bg-muted/40">
-                  <td className="px-4 py-3">
+                  <td className="px-3.5 py-3">
                     <Link to={`/requests/${r.id}`} className="font-mono text-xs text-muted-foreground hover:text-foreground">
                       #{String(r.id).padStart(3, '0')}
                     </Link>
                   </td>
-                  {admin && <td className="px-4 py-3 text-muted-foreground">{r.user_email}</td>}
-                  <td className="px-4 py-3 font-medium">{label(r.preset)}</td>
-                  <td className="max-w-[16rem] truncate px-4 py-3 text-muted-foreground" title={r.purpose}>
+                  {admin && <td className="max-w-[12rem] truncate px-3.5 py-3 text-muted-foreground" title={r.user_email}>{r.user_email}</td>}
+                  <td className="px-3.5 py-3 font-medium">{label(r.preset)}</td>
+                  <td className={`max-w-[14rem] truncate px-3.5 py-3 text-muted-foreground ${admin ? 'hidden 2xl:table-cell' : ''}`} title={r.purpose}>
                     {r.purpose}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{fmtDate(r.end_date)}</td>
-                  <td className="px-4 py-3"><StatusBadge status={eff(r)} /></td>
-                  <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                  <td className={`whitespace-nowrap px-3.5 py-3 text-muted-foreground ${admin ? 'hidden xl:table-cell' : ''}`}>{fmtDate(r.end_date)}</td>
+                  <td className="px-3.5 py-3"><StatusBadge status={eff(r)} /></td>
+                  <td className={`whitespace-nowrap px-3.5 py-3 text-muted-foreground ${admin ? 'hidden lg:table-cell' : ''}`}>
                     {admin ? fmtDate(r.created_at) : access(r)}
                   </td>
-                  <td className="px-4 py-3">{actions(r)}</td>
+                  <td className="px-3.5 py-3">{actions(r)}</td>
                 </tr>
               ))}
             </tbody>
