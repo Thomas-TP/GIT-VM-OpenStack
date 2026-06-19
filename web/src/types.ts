@@ -43,6 +43,25 @@ export type Status =
   | 'failed'
   | 'terminated';
 
+export interface AdminUser {
+  email: string;
+  name: string | null;
+  role: Role;
+  created_at: string;
+}
+export interface Comment {
+  id: number;
+  author: string;
+  body: string;
+  created_at: string;
+}
+export interface Metrics {
+  total: number;
+  successRate: number;
+  failed: number;
+  avgProvisionSeconds: number;
+}
+
 export interface VmRequest {
   id: number;
   user_email: string;

@@ -18,6 +18,7 @@ import {
   Spinner,
 } from '../ui';
 import { StatusBadge } from '../components/StatusBadge';
+import { Comments } from '../components/Comments';
 
 function Row({ label, children, mono }: { label: string; children: React.ReactNode; mono?: boolean }) {
   return (
@@ -205,6 +206,8 @@ export function RequestDetail() {
           )}
         </Card>
       </div>
+
+      <Comments requestId={rid} />
 
       <Modal
         open={confirmTerm}

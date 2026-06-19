@@ -8,7 +8,12 @@ export function isAdmin(env: Env, email: string): boolean {
 }
 
 export async function upsertUser(env: Env, user: Omit<SessionUser, 'role'>): Promise<SessionUser> {
-  const role: SessionUser['role'] = isAdmin(env, user.email) ? 'admin' : 'member';
+  // env ADMIN_EMAILS are permanent bootstrap admins; DB-promoted admins persist.
+  const existing = await env.DB.prepare(`SELECT role FROM users WHERE email = ?1`)
+    .bind(user.email)
+    .first<{ role: string }>();
+  const role: SessionUser['role'] =
+    isAdmin(env, user.email) || existing?.role === 'admin' ? 'admin' : 'member';
   await env.DB.prepare(
     `INSERT INTO users (email, name, role) VALUES (?1, ?2, ?3)
      ON CONFLICT(email) DO UPDATE SET name = ?2, role = ?3`
@@ -16,6 +21,49 @@ export async function upsertUser(env: Env, user: Omit<SessionUser, 'role'>): Pro
     .bind(user.email, user.name, role)
     .run();
   return { ...user, role };
+}
+
+export async function listUsers(env: Env) {
+  const res = await env.DB.prepare(
+    `SELECT email, name, role, created_at FROM users ORDER BY role DESC, email`
+  ).all();
+  return res.results ?? [];
+}
+
+export async function setUserRole(env: Env, email: string, role: 'member' | 'admin') {
+  await env.DB.prepare(`UPDATE users SET role = ?2 WHERE email = ?1`).bind(email, role).run();
+}
+
+export async function addComment(env: Env, requestId: number, author: string, body: string) {
+  await env.DB.prepare(
+    `INSERT INTO request_comments (request_id, author, body) VALUES (?1, ?2, ?3)`
+  )
+    .bind(requestId, author, body)
+    .run();
+}
+
+export async function listComments(env: Env, requestId: number) {
+  const res = await env.DB.prepare(
+    `SELECT id, author, body, created_at FROM request_comments WHERE request_id = ?1 ORDER BY created_at`
+  )
+    .bind(requestId)
+    .all();
+  return res.results ?? [];
+}
+
+export async function metrics(env: Env) {
+  const counts = await countByStatus(env);
+  const succeeded = (counts.active ?? 0) + (counts.terminated ?? 0);
+  const failed = counts.failed ?? 0;
+  const successRate = succeeded + failed > 0 ? succeeded / (succeeded + failed) : 1;
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  // avg provisioning time = approve -> active, from the audit log
+  const avg = await env.DB.prepare(
+    `SELECT AVG((julianday(a2.created_at) - julianday(a1.created_at)) * 86400) AS s
+       FROM audit_log a1 JOIN audit_log a2 ON a1.target = a2.target
+      WHERE a1.action = 'request.approve' AND a2.action = 'vm.active'`
+  ).first<{ s: number | null }>();
+  return { total, successRate, failed, avgProvisionSeconds: Math.round(avg?.s ?? 0) };
 }
 
 export async function audit(env: Env, actor: string, action: string, target?: string, detail?: string) {

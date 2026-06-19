@@ -28,6 +28,11 @@ import {
   getVmByRequest,
   getKeyForRequest,
   listActiveVms,
+  listUsers,
+  setUserRole,
+  addComment,
+  listComments,
+  metrics,
 } from './db';
 import {
   createKeyPair,
@@ -265,6 +270,30 @@ app.get('/api/requests/:id/live', apiAuth, async (c) => {
   }
 });
 
+// ---- Comments (owner + admins) -----------------------------------------
+app.get('/api/requests/:id/comments', apiAuth, async (c) => {
+  const user = c.get('user');
+  const id = Number(c.req.param('id'));
+  const r = await getRequest(c.env, id);
+  if (!r) return c.json({ error: 'not_found' }, 404);
+  if (r.user_email !== user.email && user.role !== 'admin') return c.json({ error: 'forbidden' }, 403);
+  return c.json({ comments: await listComments(c.env, id) });
+});
+
+app.post('/api/requests/:id/comments', apiAuth, async (c) => {
+  const user = c.get('user');
+  const id = Number(c.req.param('id'));
+  const r = await getRequest(c.env, id);
+  if (!r) return c.json({ error: 'not_found' }, 404);
+  if (r.user_email !== user.email && user.role !== 'admin') return c.json({ error: 'forbidden' }, 403);
+  const body = await c.req.json().catch(() => ({}));
+  const text = String(body.body ?? '').trim().slice(0, 2000);
+  if (!text) return c.json({ error: 'empty' }, 400);
+  await addComment(c.env, id, user.email, text);
+  await audit(c.env, user.email, 'comment.add', `req:${id}`);
+  return c.json({ ok: true }, 201);
+});
+
 // ---- Admin API ----------------------------------------------------------
 app.get('/api/admin/requests', apiAdmin, async (c) => {
   const status = c.req.query('status');
@@ -274,6 +303,37 @@ app.get('/api/admin/requests', apiAdmin, async (c) => {
 
 app.get('/api/admin/stats', apiAdmin, async (c) => {
   return c.json({ stats: await countByStatus(c.env) });
+});
+
+app.get('/api/admin/metrics', apiAdmin, async (c) => {
+  return c.json({ metrics: await metrics(c.env) });
+});
+
+app.get('/api/admin/users', apiAdmin, async (c) => {
+  return c.json({ users: await listUsers(c.env) });
+});
+
+app.post('/api/admin/users/:email/role', apiAdmin, async (c) => {
+  const admin = c.get('user');
+  const email = decodeURIComponent(c.req.param('email')).toLowerCase();
+  const body = await c.req.json().catch(() => ({}));
+  const role = body.role === 'admin' ? 'admin' : 'member';
+  await setUserRole(c.env, email, role);
+  await audit(c.env, admin.email, 'user.role', email, role);
+  return c.json({ ok: true });
+});
+
+app.get('/api/admin/requests.csv', apiAdmin, async (c) => {
+  const rows = await listRequestsByStatus(c.env);
+  const cols = ['id', 'user_email', 'preset', 'storage', 'os', 'region', 'status', 'created_at', 'decided_by', 'decided_at'];
+  const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const csv = [cols.join(','), ...rows.map((r: any) => cols.map((k) => esc(r[k])).join(','))].join('\n');
+  return new Response(csv, {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="vm-requests.csv"',
+    },
+  });
 });
 
 app.post('/api/admin/requests/:id/approve', apiAdmin, async (c) => {

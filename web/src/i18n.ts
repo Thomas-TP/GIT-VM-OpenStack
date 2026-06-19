@@ -108,6 +108,26 @@ const fr = {
     filter: 'Filtrer par statut',
     allStatuses: 'Tous les statuts',
     stats: 'Vue d’ensemble',
+    users: 'Utilisateurs',
+    exportCsv: 'Exporter CSV',
+  },
+  metric: {
+    total: 'Demandes totales',
+    successRate: 'Taux de succès',
+    avgProvision: 'Création moy.',
+  },
+  role: {
+    admin: 'Admin',
+    member: 'Membre',
+    makeAdmin: 'Promouvoir admin',
+    removeAdmin: 'Retirer admin',
+  },
+  comments: {
+    title: 'Discussion',
+    placeholder: 'Ajouter un commentaire…',
+    send: 'Envoyer',
+    empty: 'Aucun commentaire.',
+    note: 'Visible par le demandeur et les admins.',
   },
   confirm: {
     terminateTitle: 'Supprimer la VM ?',
@@ -232,6 +252,26 @@ const en: typeof fr = {
     filter: 'Filter by status',
     allStatuses: 'All statuses',
     stats: 'Overview',
+    users: 'Users',
+    exportCsv: 'Export CSV',
+  },
+  metric: {
+    total: 'Total requests',
+    successRate: 'Success rate',
+    avgProvision: 'Avg provisioning',
+  },
+  role: {
+    admin: 'Admin',
+    member: 'Member',
+    makeAdmin: 'Make admin',
+    removeAdmin: 'Remove admin',
+  },
+  comments: {
+    title: 'Discussion',
+    placeholder: 'Add a comment…',
+    send: 'Send',
+    empty: 'No comments yet.',
+    note: 'Visible to the requester and admins.',
   },
   confirm: {
     terminateTitle: 'Delete the VM?',

@@ -1,4 +1,4 @@
-import type { PresetCatalog, User, VmRequest, Status } from './types';
+import type { PresetCatalog, User, VmRequest, Status, AdminUser, Comment, Metrics } from './types';
 
 class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -49,9 +49,21 @@ export const api = {
       (r) => r.requests
     ),
   adminStats: () => req<{ stats: Record<string, number> }>('/api/admin/stats').then((r) => r.stats),
+  adminMetrics: () => req<{ metrics: Metrics }>('/api/admin/metrics').then((r) => r.metrics),
+  adminUsers: () => req<{ users: AdminUser[] }>('/api/admin/users').then((r) => r.users),
+  setUserRole: (email: string, role: 'admin' | 'member') =>
+    req<{ ok: true }>(`/api/admin/users/${encodeURIComponent(email)}/role`, {
+      method: 'POST',
+      body: JSON.stringify({ role }),
+    }),
+  csvUrl: '/api/admin/requests.csv',
   approve: (id: number) => req<{ ok: true }>(`/api/admin/requests/${id}/approve`, { method: 'POST' }),
   reject: (id: number, note: string) =>
     req<{ ok: true }>(`/api/admin/requests/${id}/reject`, { method: 'POST', body: JSON.stringify({ note }) }),
+
+  comments: (id: number) => req<{ comments: Comment[] }>(`/api/requests/${id}/comments`).then((r) => r.comments),
+  addComment: (id: number, body: string) =>
+    req<{ ok: true }>(`/api/requests/${id}/comments`, { method: 'POST', body: JSON.stringify({ body }) }),
 
   logout: () => req<void>('/auth/logout', { method: 'POST' }),
 };

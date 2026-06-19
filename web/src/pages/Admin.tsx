@@ -3,8 +3,9 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import type { PerfPreset, Status, VmRequest } from '../types';
-import { Button, Card, Field, Modal, Select, Spinner, Textarea } from '../ui';
+import { Button, Card, Field, IconDownload, Modal, Select, Spinner, Textarea } from '../ui';
 import { RequestsTable } from '../components/RequestsTable';
+import { UsersPanel } from '../components/UsersPanel';
 
 function StatCard({ label, value, dot }: { label: string; value: number; dot: string }) {
   return (
@@ -18,6 +19,21 @@ function StatCard({ label, value, dot }: { label: string; value: number; dot: st
   );
 }
 
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <Card className="p-4">
+      <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="mt-2 text-2xl font-semibold tracking-tight tabular-nums">{value}</div>
+    </Card>
+  );
+}
+
+function fmtSeconds(s: number): string {
+  if (!s) return '—';
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
 export function Admin() {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -29,6 +45,7 @@ export function Admin() {
 
   const presetsQ = useQuery({ queryKey: ['presets'], queryFn: api.presets });
   const statsQ = useQuery({ queryKey: ['admin-stats'], queryFn: api.adminStats, refetchInterval: 10000 });
+  const metricsQ = useQuery({ queryKey: ['admin-metrics'], queryFn: api.adminMetrics, refetchInterval: 15000 });
   const listQ = useQuery({
     queryKey: ['admin-requests', filter],
     queryFn: () => api.adminList(filter),
@@ -59,6 +76,7 @@ export function Admin() {
 
   const rows = listQ.data ?? [];
   const stats = statsQ.data ?? {};
+  const m = metricsQ.data;
 
   return (
     <div className="space-y-8">
@@ -75,21 +93,36 @@ export function Admin() {
         <StatCard label={t('status.failed')} value={stats.failed ?? 0} dot="bg-red-500" />
       </div>
 
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <MetricCard label={t('metric.successRate')} value={`${Math.round((m?.successRate ?? 1) * 100)}%`} />
+        <MetricCard label={t('metric.avgProvision')} value={fmtSeconds(m?.avgProvisionSeconds ?? 0)} />
+        <MetricCard label={t('metric.total')} value={String(m?.total ?? 0)} />
+      </div>
+
       <div className="flex flex-wrap items-end justify-between gap-4">
         <h2 className="text-lg font-semibold tracking-tight">{t('admin.all')}</h2>
-        <div className="w-56">
-          <Field label={t('admin.filter')}>
-            <Select value={filter} onChange={(e) => setFilter(e.target.value as Status | '')}>
-              <option value="">{t('admin.allStatuses')}</option>
-              {(['pending', 'provisioning', 'active', 'approved', 'rejected', 'failed', 'terminated'] as Status[]).map(
-                (s) => (
-                  <option key={s} value={s}>
-                    {t(`status.${s}`)}
-                  </option>
-                )
-              )}
-            </Select>
-          </Field>
+        <div className="flex items-end gap-3">
+          <a
+            href={api.csvUrl}
+            download
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3.5 text-sm font-medium transition hover:bg-muted"
+          >
+            <IconDownload className="h-4 w-4" /> {t('admin.exportCsv')}
+          </a>
+          <div className="w-52">
+            <Field label={t('admin.filter')}>
+              <Select value={filter} onChange={(e) => setFilter(e.target.value as Status | '')}>
+                <option value="">{t('admin.allStatuses')}</option>
+                {(['pending', 'provisioning', 'active', 'approved', 'rejected', 'failed', 'terminated'] as Status[]).map(
+                  (s) => (
+                    <option key={s} value={s}>
+                      {t(`status.${s}`)}
+                    </option>
+                  )
+                )}
+              </Select>
+            </Field>
+          </div>
         </div>
       </div>
 
@@ -111,6 +144,11 @@ export function Admin() {
           onTerminate={(r) => setTermTarget(r)}
         />
       )}
+
+      <div className="pt-2">
+        <h2 className="mb-3 text-lg font-semibold tracking-tight">{t('admin.users')}</h2>
+        <UsersPanel />
+      </div>
 
       <Modal
         open={!!rejectTarget}
