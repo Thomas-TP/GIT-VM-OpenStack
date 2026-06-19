@@ -29,6 +29,7 @@ import {
   updateVm,
   getVmByRequest,
   getKeyForRequest,
+  getPasswordForRequest,
   listActiveVms,
   listExpired,
   listExpiringSoon,
@@ -87,12 +88,41 @@ const apiAdmin = async (c: any, next: any) => {
   await next();
 };
 
+// Strong random password for Windows (RDP). Guarantees one of each class and
+// avoids characters that are awkward to quote in PowerShell / RDP clients.
+function generateWindowsPassword(length = 18): string {
+  const sets = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnpqrstuvwxyz', '23456789', '!@#_-+='];
+  const all = sets.join('');
+  const rand = (n: number) => crypto.getRandomValues(new Uint32Array(1))[0] % n;
+  const chars = sets.map((s) => s[rand(s.length)]); // one from each class
+  while (chars.length < length) chars.push(all[rand(all.length)]);
+  // Fisher–Yates shuffle so the guaranteed chars aren't always first.
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = rand(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
+}
+
 // Create the SSH key + EC2 instance for a request. Shared by approve + retry.
+// Windows VMs additionally get an Administrator password set via UserData and
+// stored encrypted (no SSH; the user connects over RDP).
 async function provisionRequest(env: Env, req: any): Promise<string> {
   const perf = PERF[req.preset];
   const os = OS[req.os ?? ''];
   const storage = STORAGE[req.storage ?? ''];
   if (!perf || !os || !storage) throw new Error('invalid preset composition');
+
+  const isWindows = os.connect === 'rdp';
+  let userData: string | undefined;
+  let encPassword: string | null = null;
+  if (isWindows) {
+    const password = generateWindowsPassword();
+    // EC2Launch v2 runs this on first boot; single-quoted so the password is literal.
+    userData = `<powershell>\nnet user Administrator '${password}'\n</powershell>\n<persist>false</persist>`;
+    encPassword = await encryptSecret(env.SESSION_SECRET, password);
+  }
+
   const kp = await createKeyPair(env, req.id);
   const encKey = await encryptSecret(env.SESSION_SECRET, kp.privateKey);
   const { instanceId } = await launchInstance(env, {
@@ -101,8 +131,9 @@ async function provisionRequest(env: Env, req: any): Promise<string> {
     instanceType: perf.instanceType,
     amiId: os.ami,
     sizeGb: storage.sizeGb,
+    userData,
   });
-  await createVm(env, req.id, instanceId, kp.keyName, encKey, os.sshUser);
+  await createVm(env, req.id, instanceId, kp.keyName, encKey, os.sshUser, os.connect, encPassword);
   return instanceId;
 }
 
@@ -176,6 +207,12 @@ app.post('/api/requests', apiAuth, async (c) => {
   if (!isValidPerf(perf) || !isValidStorage(storage) || !isValidOs(os) || !purpose) {
     return c.json({ error: 'invalid_request' }, 400);
   }
+  // Some OS need a minimum root disk (Windows ≥ 30 Go).
+  const osDef = OS[os];
+  const storageDef = STORAGE[storage];
+  if (osDef.minStorageGb && storageDef.sizeGb < osDef.minStorageGb) {
+    return c.json({ error: 'storage_too_small' }, 400);
+  }
   // Lifecycle dates: end date is MANDATORY ("aucune machine sans date de fin").
   const now = Date.now();
   const end = body.endDate ? new Date(String(body.endDate)) : null;
@@ -222,6 +259,18 @@ app.get('/api/requests/:id/key', apiAuth, async (c) => {
       'Content-Disposition': `attachment; filename="${row.ssh_key_name}.pem"`,
     },
   });
+});
+
+// Windows RDP password — revealed only to the owner or an admin (audited).
+app.get('/api/requests/:id/password', apiAuth, async (c) => {
+  const user = c.get('user');
+  const id = Number(c.req.param('id'));
+  const row = await getPasswordForRequest(c.env, id);
+  if (!row || !row.admin_password) return c.json({ error: 'no_password' }, 404);
+  if (row.user_email !== user.email && user.role !== 'admin') return c.json({ error: 'forbidden' }, 403);
+  const password = await decryptSecret(c.env.SESSION_SECRET, row.admin_password);
+  await audit(c.env, user.email, 'password.reveal', `req:${id}`);
+  return c.json({ user: row.ssh_user ?? 'Administrator', password });
 });
 
 app.post('/api/requests/:id/terminate', apiAuth, async (c) => {
@@ -448,7 +497,7 @@ async function reconcile(env: Env): Promise<void> {
           await updateVm(env, row.id, 'running', s.publicIp);
           await setRequestStatus(env, row.id, 'active');
           await audit(env, 'system', 'vm.active', `req:${row.id}`, s.publicIp);
-          await notifyUserReady(env, row.user_email, row.id, s.publicIp, row.ssh_user ?? 'ubuntu');
+          await notifyUserReady(env, row.user_email, row.id, s.publicIp, row.ssh_user ?? 'ubuntu', row.connect_method === 'rdp' ? 'rdp' : 'ssh');
         } else {
           await updateVm(env, row.id, s.state);
         }

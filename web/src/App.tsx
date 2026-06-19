@@ -4,7 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import { api, ApiError } from './api';
 import { AppShell } from './components/AppShell';
 import { Login } from './pages/Login';
-import { Dashboard } from './pages/Dashboard';
+import { MyVms } from './pages/MyVms';
+import { NewVm } from './pages/NewVm';
 import { Admin } from './pages/Admin';
 import { RequestDetail } from './pages/RequestDetail';
 import { Spinner } from './ui';
@@ -32,7 +33,8 @@ export default function App() {
   return (
     <AppShell user={user}>
       <Routes>
-        <Route path="/" element={<Dashboard />} />
+        <Route path="/" element={<MyVms />} />
+        <Route path="/new" element={<NewVm />} />
         <Route path="/requests/:id" element={<RequestDetail />} />
         <Route path="/admin" element={user.role === 'admin' ? <Admin /> : <Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />

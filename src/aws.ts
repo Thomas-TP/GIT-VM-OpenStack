@@ -64,6 +64,8 @@ export interface LaunchParams {
   instanceType: string;
   amiId: string;
   sizeGb: number;
+  /** Cloud-init / EC2Launch bootstrap script (raw text, base64-encoded here). */
+  userData?: string;
 }
 
 // The root volume device name depends on the AMI (Ubuntu /dev/sda1, Debian /dev/xvda…).
@@ -101,6 +103,11 @@ export async function launchInstance(env: Env, p: LaunchParams): Promise<LaunchR
     'TagSpecification.1.Tag.3.Key': 'request-id',
     'TagSpecification.1.Tag.3.Value': String(p.requestId),
   };
+
+  // UserData must be base64-encoded. Used for Windows to set the admin password.
+  if (p.userData) {
+    params.UserData = btoa(unescape(encodeURIComponent(p.userData)));
+  }
 
   const xml = await ec2(env, params);
   const instanceId = extract(xml, 'instanceId');

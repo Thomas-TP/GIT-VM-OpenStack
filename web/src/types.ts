@@ -13,17 +13,27 @@ export interface PerfPreset {
   vcpu: number;
   ramGb: number;
   hourlyUsd: number;
+  description?: string;
+  recommended?: boolean;
 }
 export interface StoragePreset {
   id: string;
   label: string;
   sizeGb: number;
+  description?: string;
 }
+export type OsFamily = 'ubuntu' | 'debian' | 'amazon' | 'rocky' | 'alma' | 'windows';
 export interface OsPreset {
   id: string;
   label: string;
+  family: OsFamily;
   ami: string;
   sshUser: string;
+  connect: 'ssh' | 'rdp';
+  description?: string;
+  recommended?: boolean;
+  minStorageGb?: number;
+  hidden?: boolean;
 }
 
 export interface PresetCatalog {
@@ -85,4 +95,6 @@ export interface VmRequest {
   aws_instance_id?: string | null;
   vm_state?: string | null;
   has_key?: number;
+  connect_method?: string | null;
+  has_password?: number;
 }
