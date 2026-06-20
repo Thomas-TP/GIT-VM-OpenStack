@@ -6,90 +6,80 @@
   "uid": "gitvm-portal",
   "tags": ["git-vm-portal"],
   "time": { "from": "now-30d", "to": "now" },
+  "refresh": "30s",
   "templating": {
     "list": [
-      {
-        "name": "portal",
-        "label": "Portal URL",
-        "type": "textbox",
-        "query": "https://git-vm-portal.thomas-prudhomme.workers.dev",
-        "current": { "text": "https://git-vm-portal.thomas-prudhomme.workers.dev", "value": "https://git-vm-portal.thomas-prudhomme.workers.dev" }
-      },
-      {
-        "name": "token",
-        "label": "Token (GRAFANA_TOKEN)",
-        "type": "textbox",
-        "query": "",
-        "current": { "text": "", "value": "" }
-      }
+      { "name": "portal", "label": "Portal URL", "type": "textbox", "query": "https://git-vm-portal.thomas-prudhomme.workers.dev", "current": { "text": "https://git-vm-portal.thomas-prudhomme.workers.dev", "value": "https://git-vm-portal.thomas-prudhomme.workers.dev" } },
+      { "name": "token", "label": "Token (GRAFANA_TOKEN)", "type": "textbox", "query": "", "current": { "text": "", "value": "" } }
     ]
   },
   "panels": [
+    { "id": 100, "type": "row", "title": "Aperçu", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
     {
-      "id": 1,
-      "title": "Coût mensuel estimé (VM actives)",
-      "type": "stat",
-      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 0 },
+      "id": 1, "title": "Coût mensuel estimé", "type": "stat", "gridPos": { "h": 5, "w": 5, "x": 0, "y": 1 },
       "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" },
-      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2 }, "overrides": [] },
-      "targets": [
-        { "refId": "A", "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" }, "type": "json", "source": "url", "format": "table", "url": "${portal}/api/monitoring/cost?token=${token}", "url_options": { "method": "GET" }, "root_selector": "", "columns": [] }
-      ]
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2, "color": { "mode": "fixed", "fixedColor": "green" } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/^monthlyUsd$/" } },
+      "targets": [ { "refId": "A", "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" }, "type": "json", "source": "url", "format": "table", "url": "${portal}/api/monitoring/cost?token=${token}", "url_options": { "method": "GET" }, "root_selector": "", "columns": [] } ]
     },
     {
-      "id": 2,
-      "title": "VM actives",
-      "type": "stat",
-      "gridPos": { "h": 5, "w": 4, "x": 8, "y": 0 },
+      "id": 2, "title": "VM actives", "type": "stat", "gridPos": { "h": 5, "w": 5, "x": 5, "y": 1 },
       "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" },
-      "fieldConfig": { "defaults": {}, "overrides": [] },
-      "options": { "reduceOptions": { "fields": "/^activeVms$/" } },
-      "targets": [
-        { "refId": "A", "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" }, "type": "json", "source": "url", "format": "table", "url": "${portal}/api/monitoring/cost?token=${token}", "url_options": { "method": "GET" }, "root_selector": "", "columns": [] }
-      ]
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [ { "color": "blue", "value": null }, { "color": "green", "value": 1 } ] } }, "overrides": [] },
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/^activeVms$/" } },
+      "targets": [ { "refId": "A", "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" }, "type": "json", "source": "url", "format": "table", "url": "${portal}/api/monitoring/cost?token=${token}", "url_options": { "method": "GET" }, "root_selector": "", "columns": [] } ]
     },
     {
-      "id": 3,
-      "title": "Demandes par statut",
-      "type": "piechart",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 3, "title": "Demandes totales", "type": "stat", "gridPos": { "h": 5, "w": 4, "x": 10, "y": 1 },
       "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" },
-      "options": { "reduceOptions": { "values": true, "calcs": [] }, "legend": { "showLegend": true } },
-      "targets": [
-        { "refId": "A", "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" }, "type": "json", "source": "url", "format": "table", "url": "${portal}/api/monitoring/summary?token=${token}", "url_options": { "method": "GET" }, "root_selector": "", "columns": [ { "selector": "status", "text": "status", "type": "string" }, { "selector": "count", "text": "count", "type": "number" } ] }
-      ]
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "purple" } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/^total$/" } },
+      "targets": [ { "refId": "A", "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" }, "type": "json", "source": "url", "format": "table", "url": "${portal}/api/monitoring/metrics?token=${token}", "url_options": { "method": "GET" }, "root_selector": "", "columns": [] } ]
     },
     {
-      "id": 4,
-      "title": "Demandes par jour (30 j)",
-      "type": "barchart",
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "id": 4, "title": "Taux de succès", "type": "gauge", "gridPos": { "h": 5, "w": 5, "x": 14, "y": 1 },
       "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" },
-      "fieldConfig": { "defaults": {}, "overrides": [] },
-      "options": { "xField": "day" },
-      "targets": [
-        { "refId": "A", "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" }, "type": "json", "source": "url", "format": "table", "url": "${portal}/api/monitoring/daily?token=${token}", "url_options": { "method": "GET" }, "root_selector": "", "columns": [ { "selector": "day", "text": "day", "type": "string" }, { "selector": "count", "text": "count", "type": "number" } ] }
-      ]
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "thresholds": { "steps": [ { "color": "red", "value": null }, { "color": "orange", "value": 70 }, { "color": "green", "value": 90 } ] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/^successRate$/" }, "showThresholdMarkers": true },
+      "targets": [ { "refId": "A", "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" }, "type": "json", "source": "url", "format": "table", "url": "${portal}/api/monitoring/metrics?token=${token}", "url_options": { "method": "GET" }, "root_selector": "", "columns": [] } ]
     },
     {
-      "id": 5,
-      "title": "Par système d'exploitation",
-      "type": "table",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "id": 5, "title": "Provisioning moyen", "type": "stat", "gridPos": { "h": 5, "w": 5, "x": 19, "y": 1 },
       "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" },
-      "targets": [
-        { "refId": "A", "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" }, "type": "json", "source": "url", "format": "table", "url": "${portal}/api/monitoring/os?token=${token}", "url_options": { "method": "GET" }, "root_selector": "", "columns": [] }
-      ]
+      "fieldConfig": { "defaults": { "unit": "s", "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/^avgProvisionSeconds$/" } },
+      "targets": [ { "refId": "A", "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" }, "type": "json", "source": "url", "format": "table", "url": "${portal}/api/monitoring/metrics?token=${token}", "url_options": { "method": "GET" }, "root_selector": "", "columns": [] } ]
+    },
+
+    { "id": 101, "type": "row", "title": "Répartition", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 6 } },
+    {
+      "id": 6, "title": "Demandes par statut", "type": "piechart", "gridPos": { "h": 9, "w": 8, "x": 0, "y": 7 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" },
+      "options": { "pieType": "donut", "reduceOptions": { "values": true, "calcs": [] }, "legend": { "showLegend": true, "placement": "right", "values": ["value", "percent"] } },
+      "targets": [ { "refId": "A", "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" }, "type": "json", "source": "url", "format": "table", "url": "${portal}/api/monitoring/summary?token=${token}", "url_options": { "method": "GET" }, "root_selector": "", "columns": [ { "selector": "status", "text": "status", "type": "string" }, { "selector": "count", "text": "count", "type": "number" } ] } ]
     },
     {
-      "id": 6,
-      "title": "Par utilisateur",
-      "type": "table",
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 14 },
+      "id": 7, "title": "Par système d'exploitation", "type": "barchart", "gridPos": { "h": 9, "w": 8, "x": 8, "y": 7 },
       "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" },
-      "targets": [
-        { "refId": "A", "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" }, "type": "json", "source": "url", "format": "table", "url": "${portal}/api/monitoring/users?token=${token}", "url_options": { "method": "GET" }, "root_selector": "", "columns": [] }
-      ]
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "options": { "orientation": "horizontal", "xField": "os", "showValue": "always" },
+      "targets": [ { "refId": "A", "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" }, "type": "json", "source": "url", "format": "table", "url": "${portal}/api/monitoring/os?token=${token}", "url_options": { "method": "GET" }, "root_selector": "", "columns": [ { "selector": "os", "text": "os", "type": "string" }, { "selector": "count", "text": "count", "type": "number" } ] } ]
+    },
+    {
+      "id": 8, "title": "Par utilisateur", "type": "table", "gridPos": { "h": 9, "w": 8, "x": 16, "y": 7 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" },
+      "fieldConfig": { "defaults": {}, "overrides": [ { "matcher": { "id": "byName", "options": "count" }, "properties": [ { "id": "custom.cellOptions", "value": { "type": "gauge", "mode": "gradient" } }, { "id": "custom.align", "value": "center" } ] } ] },
+      "options": { "showHeader": true },
+      "targets": [ { "refId": "A", "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" }, "type": "json", "source": "url", "format": "table", "url": "${portal}/api/monitoring/users?token=${token}", "url_options": { "method": "GET" }, "root_selector": "", "columns": [] } ]
+    },
+
+    { "id": 102, "type": "row", "title": "Tendance", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 } },
+    {
+      "id": 9, "title": "Demandes par jour (30 j)", "type": "timeseries", "gridPos": { "h": 8, "w": 24, "x": 0, "y": 17 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "blue" }, "custom": { "drawStyle": "bars", "fillOpacity": 40, "lineWidth": 1, "gradientMode": "opacity" } }, "overrides": [] },
+      "options": { "legend": { "showLegend": false }, "tooltip": { "mode": "single" } },
+      "targets": [ { "refId": "A", "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "gitvm-infinity" }, "type": "json", "source": "url", "format": "timeseries", "url": "${portal}/api/monitoring/daily?token=${token}", "url_options": { "method": "GET" }, "root_selector": "", "columns": [ { "selector": "day", "text": "day", "type": "timestamp", "format": "YYYY-MM-DD" }, { "selector": "count", "text": "count", "type": "number" } ] } ]
     }
   ]
 }

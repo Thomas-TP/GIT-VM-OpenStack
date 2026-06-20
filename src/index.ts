@@ -638,6 +638,12 @@ app.get('/api/monitoring/:metric', async (c) => {
   if (metric === 'daily') return c.json(await requestsPerDay(c.env));
   if (metric === 'os') return c.json(await countByOs(c.env));
   if (metric === 'users') return c.json(await countByUser(c.env));
+  if (metric === 'metrics') {
+    const m = await metrics(c.env);
+    return c.json([
+      { total: m.total, successRate: Math.round(m.successRate * 100), failed: m.failed, avgProvisionSeconds: m.avgProvisionSeconds },
+    ]);
+  }
   if (metric === 'cost') {
     const rows = await listActiveForCost(c.env);
     const monthlyUsd = rows.reduce((s, r) => s + estimateMonthlyUsd(r.preset, r.storage ?? ''), 0);
