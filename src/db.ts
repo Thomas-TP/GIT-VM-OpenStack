@@ -111,7 +111,8 @@ export async function countRecentRequests(env: Env, email: string, minutes: numb
 
 export async function listRequestsForUser(env: Env, email: string): Promise<VmRequestRow[]> {
   const res = await env.DB.prepare(
-    `SELECT r.*, v.public_ip AS public_ip, v.ssh_key_name AS ssh_key_name
+    `SELECT r.*, v.public_ip AS public_ip, v.ssh_key_name AS ssh_key_name,
+            v.state AS vm_state, v.connect_method AS connect_method
        FROM vm_requests r
        LEFT JOIN vms v ON v.request_id = r.id
       WHERE r.user_email = ?1
