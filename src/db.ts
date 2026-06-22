@@ -123,15 +123,76 @@ export async function createRequest(
   region: string,
   startDate: string | null,
   endDate: string,
-  course: string | null = null
+  course: string | null = null,
+  groupId: string | null = null,
+  groupName: string | null = null
 ): Promise<number> {
   const res = await env.DB.prepare(
-    `INSERT INTO vm_requests (user_email, purpose, preset, storage, os, region, start_date, end_date, course)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
+    `INSERT INTO vm_requests (user_email, purpose, preset, storage, os, region, start_date, end_date, course, group_id, group_name)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`
   )
-    .bind(email, purpose, perf, storage, os, region, startDate, endDate, course)
+    .bind(email, purpose, perf, storage, os, region, startDate, endDate, course, groupId, groupName)
     .run();
   return res.meta.last_row_id as number;
+}
+
+// ---- Groups (organize VMs) ---------------------------------------------
+export interface GroupVm {
+  id: number;
+  status: string;
+  expired_at: string | null;
+  aws_instance_id: string | null;
+  ssh_key_name: string | null;
+  state: string | null;
+}
+
+// Owned VMs in a group, with the bits needed for bulk start/stop/reboot/terminate.
+export async function listGroupVms(env: Env, owner: string, groupId: string): Promise<GroupVm[]> {
+  const res = await env.DB.prepare(
+    `SELECT r.id, r.status, r.expired_at, v.aws_instance_id, v.ssh_key_name, v.state
+       FROM vm_requests r LEFT JOIN vms v ON v.request_id = r.id
+      WHERE r.group_id = ?1 AND r.user_email = ?2`
+  )
+    .bind(groupId, owner)
+    .all<GroupVm>();
+  return res.results ?? [];
+}
+
+// Assign a group (id + name) to a set of owned requests. D1 has no array binding,
+// so the IN placeholders are built dynamically (ids are integers — safe).
+export async function assignGroup(env: Env, owner: string, ids: number[], groupId: string, groupName: string) {
+  if (!ids.length) return;
+  const ph = ids.map((_, i) => `?${i + 4}`).join(',');
+  await env.DB.prepare(
+    `UPDATE vm_requests SET group_id = ?1, group_name = ?2 WHERE user_email = ?3 AND id IN (${ph})`
+  )
+    .bind(groupId, groupName, owner, ...ids)
+    .run();
+}
+
+export async function renameGroup(env: Env, owner: string, groupId: string, name: string) {
+  await env.DB.prepare(`UPDATE vm_requests SET group_name = ?3 WHERE group_id = ?1 AND user_email = ?2`)
+    .bind(groupId, owner, name)
+    .run();
+}
+
+export async function clearGroup(env: Env, owner: string, groupId: string) {
+  await env.DB.prepare(`UPDATE vm_requests SET group_id = NULL, group_name = NULL WHERE group_id = ?1 AND user_email = ?2`)
+    .bind(groupId, owner)
+    .run();
+}
+
+// Hard-delete a request the user wants gone from their list (terminal states only).
+export async function deleteRequest(env: Env, owner: string, id: number): Promise<boolean> {
+  const r = await env.DB.prepare(`SELECT status, expired_at FROM vm_requests WHERE id = ?1 AND user_email = ?2`)
+    .bind(id, owner)
+    .first<{ status: string; expired_at: string | null }>();
+  if (!r) return false;
+  const terminal = r.status === 'terminated' || r.status === 'rejected' || r.status === 'failed' || !!r.expired_at;
+  if (!terminal) return false;
+  await env.DB.prepare(`DELETE FROM vms WHERE request_id = ?1`).bind(id).run();
+  await env.DB.prepare(`DELETE FROM vm_requests WHERE id = ?1`).bind(id).run();
+  return true;
 }
 
 // Rate limiting: how many requests this user created in the last N minutes.
