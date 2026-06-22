@@ -51,6 +51,11 @@ import {
   requestExtension,
   approveExtension,
   rejectExtension,
+  listGroupVms,
+  assignGroup,
+  renameGroup,
+  clearGroup,
+  deleteRequest,
   listUsers,
   setUserRole,
   addComment,
@@ -313,6 +318,117 @@ app.post('/api/requests', apiAuth, async (c) => {
   await notifyAdminsInApp(c.env, 'request_new', `/requests/${id}`);
   c.executionCtx.waitUntil(notifyAdminsNewRequest(c.env, id, user.email, PERF[perf].label));
   return c.json({ id }, 201);
+});
+
+// Batch creation: 1–4 individually-configured VMs, optionally in a named group.
+app.post('/api/requests/batch', apiAuth, async (c) => {
+  const user = c.get('user');
+  const body = await c.req.json().catch(() => ({}));
+  const vms = Array.isArray(body.vms) ? body.vms : [];
+  if (vms.length < 1 || vms.length > 4) return c.json({ error: 'invalid_count' }, 400);
+  const now = Date.now();
+  const parsed: { perf: string; storage: string; os: string; purpose: string; course: string; start: string | null; end: string }[] = [];
+  for (const v of vms) {
+    const perf = String(v.perf ?? ''), storage = String(v.storage ?? ''), os = String(v.os ?? '');
+    const purpose = String(v.purpose ?? '').trim(), course = String(v.course ?? '');
+    if (!isValidPerf(perf) || !isValidStorage(storage) || !isValidOs(os) || !isValidCourse(course) || !purpose) {
+      return c.json({ error: 'invalid_request' }, 400);
+    }
+    if (OS[os].minStorageGb && STORAGE[storage].sizeGb < OS[os].minStorageGb!) return c.json({ error: 'storage_too_small' }, 400);
+    const end = v.endDate ? new Date(String(v.endDate)) : null;
+    const start = v.startDate ? new Date(String(v.startDate)) : null;
+    if (!end || isNaN(end.getTime()) || end.getTime() <= now) return c.json({ error: 'invalid_end_date' }, 400);
+    if (start && (isNaN(start.getTime()) || start.getTime() >= end.getTime())) return c.json({ error: 'invalid_start_date' }, 400);
+    parsed.push({ perf, storage, os, purpose, course, start: start ? start.toISOString() : null, end: end.toISOString() });
+  }
+  if ((await countRecentRequests(c.env, user.email, 60)) + parsed.length > 10) {
+    return c.json({ error: 'rate_limited' }, 429, { 'Retry-After': '3600' });
+  }
+  const groupName = body.group && String(body.group.name ?? '').trim() ? String(body.group.name).trim().slice(0, 80) : null;
+  const groupId = groupName ? randomToken(8) : null;
+  const ids: number[] = [];
+  for (const p of parsed) {
+    const id = await createRequest(
+      c.env, user.email, p.purpose, p.perf, p.storage, p.os, c.env.AWS_REGION, p.start, p.end, p.course || null, groupId, groupName
+    );
+    ids.push(id);
+    await audit(c.env, user.email, 'request.create', `req:${id}`, `${p.perf}/${p.storage}/${p.os}${groupId ? ` grp:${groupId}` : ''}`);
+  }
+  await notifyAdminsInApp(c.env, 'request_new', groupId ? '/admin' : `/requests/${ids[0]}`);
+  c.executionCtx.waitUntil(notifyAdminsNewRequest(c.env, ids[0], user.email, `${parsed.length} VM`));
+  return c.json({ ids, groupId, groupName }, 201);
+});
+
+// Delete a request from the user's list (terminal states only).
+app.delete('/api/requests/:id', apiAuth, async (c) => {
+  const user = c.get('user');
+  const id = Number(c.req.param('id'));
+  const ok = await deleteRequest(c.env, user.email, id);
+  if (!ok) return c.json({ error: 'not_deletable' }, 409);
+  await audit(c.env, user.email, 'request.delete', `req:${id}`);
+  return c.json({ ok: true });
+});
+
+// ---- Groups -------------------------------------------------------------
+app.post('/api/groups', apiAuth, async (c) => {
+  const user = c.get('user');
+  const body = await c.req.json().catch(() => ({}));
+  const name = String(body.name ?? '').trim().slice(0, 80);
+  const ids = Array.isArray(body.ids) ? body.ids.map(Number).filter((n: number) => Number.isInteger(n)) : [];
+  if (!name || !ids.length) return c.json({ error: 'invalid' }, 400);
+  const groupId = randomToken(8);
+  await assignGroup(c.env, user.email, ids, groupId, name);
+  await audit(c.env, user.email, 'group.create', `grp:${groupId}`, `${ids.length} vm`);
+  return c.json({ ok: true, groupId, groupName: name });
+});
+
+app.post('/api/groups/:groupId/rename', apiAuth, async (c) => {
+  const user = c.get('user');
+  const name = String((await c.req.json().catch(() => ({}))).name ?? '').trim().slice(0, 80);
+  if (!name) return c.json({ error: 'empty' }, 400);
+  await renameGroup(c.env, user.email, c.req.param('groupId'), name);
+  return c.json({ ok: true });
+});
+
+app.post('/api/groups/:groupId/dissolve', apiAuth, async (c) => {
+  await clearGroup(c.env, c.get('user').email, c.req.param('groupId'));
+  return c.json({ ok: true });
+});
+
+// Bulk action on all owned VMs in a group.
+app.post('/api/groups/:groupId/action', apiAuth, async (c) => {
+  const user = c.get('user');
+  const groupId = c.req.param('groupId');
+  const action = String((await c.req.json().catch(() => ({}))).action ?? '');
+  if (!['start', 'stop', 'reboot', 'terminate'].includes(action)) return c.json({ error: 'invalid_action' }, 400);
+  const vms = await listGroupVms(c.env, user.email, groupId);
+  if (!vms.length) return c.json({ error: 'not_found' }, 404);
+  let affected = 0;
+  for (const vm of vms) {
+    if (!vm.aws_instance_id) continue;
+    try {
+      if (action === 'start') {
+        if (vm.expired_at) continue;
+        await startInstance(c.env, vm.aws_instance_id);
+        await updateVm(c.env, vm.id, 'pending');
+      } else if (action === 'stop') {
+        await stopInstance(c.env, vm.aws_instance_id);
+        await updateVm(c.env, vm.id, 'stopping');
+      } else if (action === 'reboot') {
+        await rebootInstance(c.env, vm.aws_instance_id);
+      } else if (action === 'terminate') {
+        await terminateInstance(c.env, vm.aws_instance_id);
+        if (vm.ssh_key_name) await deleteKeyPair(c.env, vm.ssh_key_name);
+        await updateVm(c.env, vm.id, 'terminated');
+        await setRequestStatus(c.env, vm.id, 'terminated');
+      }
+      affected++;
+    } catch {
+      /* skip one, continue the group */
+    }
+  }
+  await audit(c.env, user.email, `group.${action}`, `grp:${groupId}`, `${affected}/${vms.length}`);
+  return c.json({ ok: true, affected });
 });
 
 app.get('/api/requests/:id', apiAuth, async (c) => {

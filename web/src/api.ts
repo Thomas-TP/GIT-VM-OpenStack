@@ -43,6 +43,21 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ perf, storage, os, purpose, startDate, endDate, course }),
     }),
+  createBatch: (
+    vms: { perf: string; storage: string; os: string; purpose: string; startDate: string | null; endDate: string; course: string }[],
+    group?: { name: string }
+  ) => req<{ ids: number[]; groupId: string | null; groupName: string | null }>('/api/requests/batch', {
+    method: 'POST',
+    body: JSON.stringify({ vms, group }),
+  }),
+  deleteRequest: (id: number) => req<{ ok: true }>(`/api/requests/${id}`, { method: 'DELETE' }),
+  groupAction: (groupId: string, action: 'start' | 'stop' | 'reboot' | 'terminate') =>
+    req<{ ok: true; affected: number }>(`/api/groups/${groupId}/action`, { method: 'POST', body: JSON.stringify({ action }) }),
+  groupRename: (groupId: string, name: string) =>
+    req<{ ok: true }>(`/api/groups/${groupId}/rename`, { method: 'POST', body: JSON.stringify({ name }) }),
+  groupDissolve: (groupId: string) => req<{ ok: true }>(`/api/groups/${groupId}/dissolve`, { method: 'POST' }),
+  createGroup: (name: string, ids: number[]) =>
+    req<{ ok: true; groupId: string; groupName: string }>('/api/groups', { method: 'POST', body: JSON.stringify({ name, ids }) }),
   getRequest: (id: number) => req<{ request: VmRequest }>(`/api/requests/${id}`).then((r) => r.request),
   requestExtension: (id: number, until: string) =>
     req<{ ok: true }>(`/api/requests/${id}/extend`, { method: 'POST', body: JSON.stringify({ until }) }),
