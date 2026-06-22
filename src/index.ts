@@ -57,6 +57,12 @@ import {
   renameGroup,
   clearGroup,
   deleteRequest,
+  createSnapshotRow,
+  listSnapshotsForRequest,
+  listSnapshotsForUser,
+  updateSnapshotStatus,
+  listPendingSnapshots,
+  setSnapshotOnDelete,
   listUsers,
   setUserRole,
   addComment,
@@ -80,6 +86,9 @@ import {
   stopInstance,
   rebootInstance,
   listManagedInstances,
+  describeRootVolume,
+  createSnapshot,
+  describeSnapshot,
 } from './aws';
 import {
   notifyAdminsNewRequest,
@@ -203,6 +212,20 @@ async function provisionRequest(env: Env, req: any): Promise<string> {
   });
   await createVm(env, req.id, instanceId, kp.keyName, encKey, os.sshUser, os.connect, encPassword);
   return instanceId;
+}
+
+// Take an EBS snapshot of a VM's root volume (best-effort; used by auto-on-delete).
+async function autoSnapshot(env: Env, requestId: number, owner: string, instanceId: string): Promise<void> {
+  try {
+    const rv = await describeRootVolume(env, instanceId);
+    if (!rv.volumeId) return;
+    const desc = `auto req-${requestId} ${new Date().toISOString().slice(0, 16)}`;
+    const snapId = await createSnapshot(env, rv.volumeId, desc);
+    await createSnapshotRow(env, requestId, owner, snapId, desc, rv.rootDevice ?? null, rv.architecture ?? null);
+    await audit(env, 'system', 'snapshot.auto', `req:${requestId}`, snapId);
+  } catch (e: any) {
+    await audit(env, 'system', 'snapshot.auto.error', `req:${requestId}`, e.message);
+  }
 }
 
 // ---- OIDC (browser redirects) ------------------------------------------
@@ -517,6 +540,7 @@ app.post('/api/requests/:id/terminate', apiAuth, async (c) => {
 
   const vm: any = await getVmByRequest(c.env, id);
   try {
+    if (r.snapshot_on_delete && vm?.aws_instance_id) await autoSnapshot(c.env, id, r.user_email, vm.aws_instance_id);
     if (vm?.aws_instance_id) await terminateInstance(c.env, vm.aws_instance_id);
     if (vm?.ssh_key_name) await deleteKeyPair(c.env, vm.ssh_key_name);
     if (vm) await updateVm(c.env, id, 'terminated');
@@ -671,6 +695,48 @@ app.post('/api/requests/:id/reset', apiAuth, async (c) => {
     await audit(c.env, c.get('user').email, 'vm.reset.failed', `req:${id}`, e.message);
     return c.json({ error: e.message }, 500);
   }
+});
+
+// ---- Snapshots (EBS) ----------------------------------------------------
+app.post('/api/requests/:id/snapshot', apiAuth, async (c) => {
+  const id = Number(c.req.param('id'));
+  const ctx = await authorizeVm(c, id);
+  if (!ctx) return c.json({ error: 'not_found' }, 404);
+  if (!ctx.vm?.aws_instance_id) return c.json({ error: 'no_instance' }, 400);
+  try {
+    const rv = await describeRootVolume(c.env, ctx.vm.aws_instance_id);
+    if (!rv.volumeId) return c.json({ error: 'no_volume' }, 400);
+    const desc = `req-${id} ${new Date().toISOString().slice(0, 16)}`;
+    const snapId = await createSnapshot(c.env, rv.volumeId, desc);
+    const rowId = await createSnapshotRow(c.env, id, c.get('user').email, snapId, desc, rv.rootDevice ?? null, rv.architecture ?? null);
+    await audit(c.env, c.get('user').email, 'snapshot.create', `req:${id}`, snapId);
+    return c.json({ ok: true, id: rowId, awsSnapshotId: snapId });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+app.get('/api/requests/:id/snapshots', apiAuth, async (c) => {
+  const id = Number(c.req.param('id'));
+  const ctx = await authorizeVm(c, id);
+  if (!ctx) return c.json({ error: 'not_found' }, 404);
+  return c.json({ snapshots: await listSnapshotsForRequest(c.env, id) });
+});
+
+app.get('/api/snapshots', apiAuth, async (c) => {
+  return c.json({ snapshots: await listSnapshotsForUser(c.env, c.get('user').email) });
+});
+
+app.post('/api/requests/:id/snapshot-on-delete', apiAuth, async (c) => {
+  const user = c.get('user');
+  const id = Number(c.req.param('id'));
+  const r = await getRequest(c.env, id);
+  if (!r) return c.json({ error: 'not_found' }, 404);
+  if (r.user_email !== user.email && user.role !== 'admin') return c.json({ error: 'forbidden' }, 403);
+  const enabled = !!(await c.req.json().catch(() => ({}))).enabled;
+  await setSnapshotOnDelete(c.env, r.user_email, id, enabled);
+  await audit(c.env, user.email, 'snapshot.auto.toggle', `req:${id}`, enabled ? 'on' : 'off');
+  return c.json({ ok: true });
 });
 
 // Live AWS state (state + public IP + uptime) — used by the detail page.
@@ -1066,6 +1132,7 @@ async function retryFailed(env: Env): Promise<void> {
 async function enforceExpiry(env: Env): Promise<void> {
   for (const row of await listExpired(env)) {
     try {
+      if (row.snapshot_on_delete && row.aws_instance_id) await autoSnapshot(env, row.id, row.user_email, row.aws_instance_id);
       if (row.aws_instance_id) await terminateInstance(env, row.aws_instance_id);
       if (row.ssh_key_name) await deleteKeyPair(env, row.ssh_key_name);
       await updateVm(env, row.id, 'terminated');
@@ -1090,6 +1157,20 @@ async function enforceExpiry(env: Env): Promise<void> {
   }
 }
 
+// Poll pending EBS snapshots and mark them completed/error.
+async function syncSnapshots(env: Env): Promise<void> {
+  for (const s of await listPendingSnapshots(env)) {
+    try {
+      const st = await describeSnapshot(env, s.aws_snapshot_id);
+      if (st.state === 'completed' || st.state === 'error') {
+        await updateSnapshotStatus(env, s.aws_snapshot_id, st.state, st.sizeGb);
+      }
+    } catch {
+      /* skip this tick */
+    }
+  }
+}
+
 app.onError((err, c) => {
   reportError(c.env.SENTRY_DSN, err, c.executionCtx, { path: c.req.path });
   return c.json({ error: 'internal' }, 500);
@@ -1107,6 +1188,7 @@ export default {
           await applySchedules(env);
           await retryFailed(env);
           await enforceExpiry(env);
+          await syncSnapshots(env);
         })()
       );
     }

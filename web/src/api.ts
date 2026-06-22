@@ -1,4 +1,4 @@
-import type { PresetCatalog, User, VmRequest, Status, AdminUser, Comment, Metrics, AuditEntry, Notification } from './types';
+import type { PresetCatalog, User, VmRequest, Status, AdminUser, Comment, Metrics, AuditEntry, Notification, Snapshot } from './types';
 
 class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -69,6 +69,11 @@ export const api = {
   rejectExtension: (id: number) => req<{ ok: true }>(`/api/admin/requests/${id}/extend/reject`, { method: 'POST' }),
   terminate: (id: number) => req<{ ok: true }>(`/api/requests/${id}/terminate`, { method: 'POST' }),
   reset: (id: number) => req<{ ok: true }>(`/api/requests/${id}/reset`, { method: 'POST' }),
+  createSnapshot: (id: number) => req<{ ok: true; id: number }>(`/api/requests/${id}/snapshot`, { method: 'POST' }),
+  listSnapshots: (id: number) => req<{ snapshots: Snapshot[] }>(`/api/requests/${id}/snapshots`).then((r) => r.snapshots),
+  userSnapshots: () => req<{ snapshots: Snapshot[] }>('/api/snapshots').then((r) => r.snapshots),
+  setSnapshotOnDelete: (id: number, enabled: boolean) =>
+    req<{ ok: true }>(`/api/requests/${id}/snapshot-on-delete`, { method: 'POST', body: JSON.stringify({ enabled }) }),
   start: (id: number) => req<{ ok: true }>(`/api/requests/${id}/start`, { method: 'POST' }),
   stop: (id: number) => req<{ ok: true }>(`/api/requests/${id}/stop`, { method: 'POST' }),
   reboot: (id: number) => req<{ ok: true }>(`/api/requests/${id}/reboot`, { method: 'POST' }),

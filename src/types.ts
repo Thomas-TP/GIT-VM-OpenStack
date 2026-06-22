@@ -51,6 +51,7 @@ export interface VmRequestRow {
   course_ready_at: string | null;
   group_id: string | null;
   group_name: string | null;
+  snapshot_on_delete: number;
   admin_note: string | null;
   decided_by: string | null;
   created_at: string;

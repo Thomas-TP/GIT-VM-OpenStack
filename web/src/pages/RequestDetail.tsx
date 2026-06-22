@@ -10,6 +10,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { OsIcon } from '../components/OsIcon';
 import { ConnectionGuide } from '../components/ConnectionGuide';
 import { SchedulePanel } from '../components/SchedulePanel';
+import { SnapshotPanel } from '../components/SnapshotPanel';
 import { ExtensionPanel } from '../components/ExtensionPanel';
 import { AdminReviewPanel } from '../components/AdminReviewPanel';
 import { Comments } from '../components/Comments';
@@ -300,6 +301,10 @@ export function RequestDetail() {
           <Card className="p-5">
             <Eyebrow>{t('schedule.title')}</Eyebrow>
             <SchedulePanel request={r} />
+          </Card>
+          <Card className="p-5">
+            <Eyebrow>{t('snapshot.title')}</Eyebrow>
+            <SnapshotPanel request={r} />
           </Card>
         </>
       )}
