@@ -99,6 +99,18 @@ export interface Notification {
   read: number;
   created_at: string;
 }
+export interface Snapshot {
+  id: number;
+  request_id: number | null;
+  aws_snapshot_id: string | null;
+  description: string | null;
+  size_gb: number | null;
+  status: string;
+  ova_status: string | null;
+  ova_url: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
 
 export interface VmRequest {
   id: number;
@@ -113,6 +125,7 @@ export interface VmRequest {
   course_ready_at?: string | null;
   group_id?: string | null;
   group_name?: string | null;
+  snapshot_on_delete?: number;
   admin_note: string | null;
   decided_by: string | null;
   created_at: string;

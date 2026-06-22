@@ -151,6 +151,79 @@ export async function rebootInstance(env: Env, instanceId: string): Promise<void
   await ec2(env, { Action: 'RebootInstances', 'InstanceId.1': instanceId });
 }
 
+// ---- Snapshots (EBS) ----------------------------------------------------
+export interface RootVolume {
+  volumeId?: string;
+  rootDevice?: string;
+  architecture?: string;
+  sizeGb?: number;
+}
+// Root EBS volume of an instance + its device name / architecture (for snapshot + restore).
+export async function describeRootVolume(env: Env, instanceId: string): Promise<RootVolume> {
+  const xml = await ec2(env, { Action: 'DescribeInstances', 'InstanceId.1': instanceId });
+  const rootDevice = extract(xml, 'rootDeviceName');
+  const architecture = extract(xml, 'architecture');
+  let volumeId: string | undefined;
+  const re = /<deviceName>([^<]+)<\/deviceName>[\s\S]*?<volumeId>([^<]+)<\/volumeId>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml))) {
+    if (m[1] === rootDevice) { volumeId = m[2]; break; }
+    if (!volumeId) volumeId = m[2];
+  }
+  return { volumeId, rootDevice, architecture };
+}
+
+export async function createSnapshot(env: Env, volumeId: string, description: string): Promise<string> {
+  const xml = await ec2(env, {
+    Action: 'CreateSnapshot',
+    VolumeId: volumeId,
+    Description: description.slice(0, 255),
+    'TagSpecification.1.ResourceType': 'snapshot',
+    'TagSpecification.1.Tag.1.Key': 'managed-by',
+    'TagSpecification.1.Tag.1.Value': 'git-vm-portal',
+  });
+  const id = extract(xml, 'snapshotId');
+  if (!id) throw new Error('CreateSnapshot: no snapshotId');
+  return id;
+}
+
+// state: pending | completed | error ; plus volumeSize when available.
+export async function describeSnapshot(env: Env, snapshotId: string): Promise<{ state: string; sizeGb?: number }> {
+  const xml = await ec2(env, { Action: 'DescribeSnapshots', 'SnapshotId.1': snapshotId });
+  const state = extract(xml, 'status') ?? 'pending';
+  const sz = extract(xml, 'volumeSize');
+  return { state, sizeGb: sz ? Number(sz) : undefined };
+}
+
+export async function deleteSnapshot(env: Env, snapshotId: string): Promise<void> {
+  await ec2(env, { Action: 'DeleteSnapshot', SnapshotId: snapshotId }).catch(() => {});
+}
+
+// Register an AMI from a snapshot so a new VM can be launched from it (restore).
+export async function registerImageFromSnapshot(
+  env: Env,
+  name: string,
+  snapshotId: string,
+  rootDevice: string,
+  architecture: string
+): Promise<string> {
+  const xml = await ec2(env, {
+    Action: 'RegisterImage',
+    Name: name.slice(0, 127),
+    Architecture: architecture || 'x86_64',
+    RootDeviceName: rootDevice || '/dev/sda1',
+    VirtualizationType: 'hvm',
+    EnaSupport: 'true',
+    'BlockDeviceMapping.1.DeviceName': rootDevice || '/dev/sda1',
+    'BlockDeviceMapping.1.Ebs.SnapshotId': snapshotId,
+    'BlockDeviceMapping.1.Ebs.DeleteOnTermination': 'true',
+    'BlockDeviceMapping.1.Ebs.VolumeType': 'gp3',
+  });
+  const id = extract(xml, 'imageId');
+  if (!id) throw new Error('RegisterImage: no imageId');
+  return id;
+}
+
 // List instances managed by the portal -> { instanceId: state } (for reconciliation).
 export async function listManagedInstances(env: Env): Promise<Record<string, string>> {
   const xml = await ec2(env, {

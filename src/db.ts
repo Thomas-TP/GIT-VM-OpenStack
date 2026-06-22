@@ -188,6 +188,75 @@ export async function clearGroup(env: Env, owner: string, groupId: string) {
     .run();
 }
 
+// ---- Snapshots ----------------------------------------------------------
+export interface SnapshotRow {
+  id: number;
+  request_id: number | null;
+  user_email: string;
+  aws_snapshot_id: string | null;
+  description: string | null;
+  root_device: string | null;
+  architecture: string | null;
+  size_gb: number | null;
+  status: string;
+  ova_status: string | null;
+  ova_url: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export async function createSnapshotRow(
+  env: Env,
+  requestId: number,
+  owner: string,
+  awsSnapshotId: string,
+  description: string,
+  rootDevice: string | null,
+  architecture: string | null
+): Promise<number> {
+  const res = await env.DB.prepare(
+    `INSERT INTO snapshots (request_id, user_email, aws_snapshot_id, description, root_device, architecture)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+  )
+    .bind(requestId, owner, awsSnapshotId, description.slice(0, 255), rootDevice, architecture)
+    .run();
+  return res.meta.last_row_id as number;
+}
+
+export async function listSnapshotsForRequest(env: Env, requestId: number): Promise<SnapshotRow[]> {
+  const res = await env.DB.prepare(`SELECT * FROM snapshots WHERE request_id = ?1 ORDER BY created_at DESC`).bind(requestId).all<SnapshotRow>();
+  return res.results ?? [];
+}
+
+export async function listSnapshotsForUser(env: Env, owner: string): Promise<SnapshotRow[]> {
+  const res = await env.DB.prepare(`SELECT * FROM snapshots WHERE user_email = ?1 ORDER BY created_at DESC LIMIT 100`).bind(owner).all<SnapshotRow>();
+  return res.results ?? [];
+}
+
+export async function getSnapshot(env: Env, id: number, owner: string): Promise<SnapshotRow | null> {
+  return await env.DB.prepare(`SELECT * FROM snapshots WHERE id = ?1 AND user_email = ?2`).bind(id, owner).first<SnapshotRow>();
+}
+
+export async function updateSnapshotStatus(env: Env, awsSnapshotId: string, status: string, sizeGb?: number): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE snapshots SET status = ?2, size_gb = COALESCE(?3, size_gb),
+            completed_at = CASE WHEN ?2 = 'completed' THEN datetime('now') ELSE completed_at END
+       WHERE aws_snapshot_id = ?1`
+  )
+    .bind(awsSnapshotId, status, sizeGb ?? null)
+    .run();
+}
+
+// Snapshots still being created (for the reconciler to poll).
+export async function listPendingSnapshots(env: Env): Promise<{ id: number; aws_snapshot_id: string }[]> {
+  const res = await env.DB.prepare(`SELECT id, aws_snapshot_id FROM snapshots WHERE status = 'pending' AND aws_snapshot_id IS NOT NULL`).all<{ id: number; aws_snapshot_id: string }>();
+  return res.results ?? [];
+}
+
+export async function setSnapshotOnDelete(env: Env, owner: string, id: number, enabled: boolean): Promise<void> {
+  await env.DB.prepare(`UPDATE vm_requests SET snapshot_on_delete = ?3 WHERE id = ?1 AND user_email = ?2`).bind(id, owner, enabled ? 1 : 0).run();
+}
+
 // Hard-delete a request the user wants gone from their list (terminal states only).
 export async function deleteRequest(env: Env, owner: string, id: number): Promise<boolean> {
   const r = await env.DB.prepare(`SELECT status, expired_at FROM vm_requests WHERE id = ?1 AND user_email = ?2`)
@@ -509,13 +578,14 @@ export interface ExpirableVm {
   aws_instance_id: string | null;
   state: string | null;
   ssh_key_name: string | null;
+  snapshot_on_delete: number;
 }
 
 // Active VMs whose end_date has passed and not yet processed — to TERMINATE (ADR 0008,
 // supersede ADR 0004). The key name lets the reconciler delete the AWS key pair too.
 export async function listExpired(env: Env): Promise<ExpirableVm[]> {
   const res = await env.DB.prepare(
-    `SELECT r.id, r.user_email, r.end_date, v.aws_instance_id, v.state, v.ssh_key_name
+    `SELECT r.id, r.user_email, r.end_date, v.aws_instance_id, v.state, v.ssh_key_name, r.snapshot_on_delete
        FROM vm_requests r JOIN vms v ON v.request_id = r.id
       WHERE r.status = 'active' AND r.expired_at IS NULL AND r.end_date IS NOT NULL
         AND datetime(r.end_date) <= datetime('now')`
