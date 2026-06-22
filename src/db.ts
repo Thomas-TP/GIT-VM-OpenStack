@@ -205,6 +205,12 @@ export interface SnapshotRow {
   os: string | null;
   created_at: string;
   completed_at: string | null;
+  export_status: string | null;
+  export_format: string | null;
+  export_key: string | null;
+  export_url: string | null;
+  export_instance_id: string | null;
+  export_started_at: string | null;
 }
 
 export async function createSnapshotRow(
@@ -258,6 +264,26 @@ export async function listPendingSnapshots(env: Env): Promise<{ id: number; aws_
 
 export async function setSnapshotOnDelete(env: Env, owner: string, id: number, enabled: boolean): Promise<void> {
   await env.DB.prepare(`UPDATE vm_requests SET snapshot_on_delete = ?3 WHERE id = ?1 AND user_email = ?2`).bind(id, owner, enabled ? 1 : 0).run();
+}
+
+// ---- snapshot → local-disk export (helper instance) ----
+export async function startSnapshotExport(env: Env, id: number, format: string, key: string, instanceId: string): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE snapshots SET export_status = 'running', export_format = ?2, export_key = ?3,
+            export_instance_id = ?4, export_url = NULL, export_started_at = datetime('now')
+       WHERE id = ?1`
+  ).bind(id, format, key, instanceId).run();
+}
+
+export async function setSnapshotExport(env: Env, id: number, status: 'ready' | 'error', url: string | null = null): Promise<void> {
+  await env.DB.prepare(`UPDATE snapshots SET export_status = ?2, export_url = COALESCE(?3, export_url) WHERE id = ?1`)
+    .bind(id, status, url)
+    .run();
+}
+
+export async function listExportingSnapshots(env: Env): Promise<SnapshotRow[]> {
+  const res = await env.DB.prepare(`SELECT * FROM snapshots WHERE export_status = 'running'`).all<SnapshotRow>();
+  return res.results ?? [];
 }
 
 // Hard-delete a request the user wants gone from their list (terminal states only).
