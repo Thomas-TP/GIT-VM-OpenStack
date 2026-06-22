@@ -111,6 +111,9 @@ export interface Snapshot {
   os: string | null;
   created_at: string;
   completed_at: string | null;
+  export_status: string | null; // null | running | ready | error
+  export_format: string | null; // vmdk | vdi
+  export_url: string | null;
 }
 
 export interface VmRequest {

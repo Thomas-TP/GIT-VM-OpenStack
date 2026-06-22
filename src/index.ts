@@ -64,6 +64,9 @@ import {
   updateSnapshotStatus,
   listPendingSnapshots,
   setSnapshotOnDelete,
+  startSnapshotExport,
+  setSnapshotExport,
+  listExportingSnapshots,
   listUsers,
   setUserRole,
   addComment,
@@ -91,6 +94,10 @@ import {
   createSnapshot,
   describeSnapshot,
   registerImageFromSnapshot,
+  runExportHelper,
+  s3ObjectExists,
+  s3PresignGet,
+  listExportHelpers,
 } from './aws';
 import {
   notifyAdminsNewRequest,
@@ -758,6 +765,33 @@ app.post('/api/requests/:id/snapshot-on-delete', apiAuth, async (c) => {
   return c.json({ ok: true });
 });
 
+// One-click: generate a downloadable .vmdk/.vdi from a snapshot via an ephemeral helper instance.
+app.post('/api/requests/:id/snapshots/:sid/export', apiAuth, async (c) => {
+  const user = c.get('user');
+  const id = Number(c.req.param('id'));
+  const sid = Number(c.req.param('sid'));
+  const ctx = await authorizeVm(c, id);
+  if (!ctx) return c.json({ error: 'not_found' }, 404);
+  if (!c.env.AWS_EXPORT_BUCKET || !c.env.AWS_EXPORT_PROFILE) return c.json({ error: 'export_not_configured' }, 501);
+  const snap = await getSnapshot(c.env, sid, ctx.r.user_email);
+  if (!snap || !snap.aws_snapshot_id || snap.status !== 'completed') return c.json({ error: 'snapshot_not_ready' }, 409);
+  if (snap.export_status === 'running') return c.json({ error: 'export_in_progress' }, 409);
+  const fmtRaw = String((await c.req.json().catch(() => ({}))).format ?? 'vmdk').toLowerCase();
+  const format = fmtRaw === 'vdi' ? 'vdi' : 'vmdk';
+  const bucket = c.env.AWS_EXPORT_BUCKET;
+  const key = `exports/req${id}-snap${sid}-${Date.now()}.${format}`;
+  const sizeGb = snap.size_gb ?? 30;
+  const userData = exportUserData({ region: c.env.AWS_REGION, snapshotId: snap.aws_snapshot_id, bucket, key, format });
+  try {
+    const instanceId = await runExportHelper(c.env, { snapshotId: snap.aws_snapshot_id, profileName: c.env.AWS_EXPORT_PROFILE, userData, rootSizeGb: sizeGb + 14 });
+    await startSnapshotExport(c.env, sid, format, key, instanceId);
+    await audit(c.env, user.email, 'snapshot.export.start', `snap:${sid}`, `${format} ${instanceId}`);
+    return c.json({ ok: true, status: 'running' });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 // Live AWS state (state + public IP + uptime) — used by the detail page.
 app.get('/api/requests/:id/live', apiAuth, async (c) => {
   const id = Number(c.req.param('id'));
@@ -1190,6 +1224,67 @@ async function syncSnapshots(env: Env): Promise<void> {
   }
 }
 
+// Poll running disk exports: when the helper has uploaded the file, presign it.
+// Reap any helper instance that overran (cost guard) and fail its export.
+async function syncExports(env: Env): Promise<void> {
+  if (!env.AWS_EXPORT_BUCKET) return;
+  const EXPORT_TIMEOUT_MS = 40 * 60 * 1000;
+  for (const s of await listExportingSnapshots(env)) {
+    try {
+      if (s.export_key && (await s3ObjectExists(env, env.AWS_EXPORT_BUCKET, s.export_key))) {
+        const url = await s3PresignGet(env, env.AWS_EXPORT_BUCKET, s.export_key);
+        await setSnapshotExport(env, s.id, 'ready', url);
+        continue;
+      }
+      const started = s.export_started_at ? Date.parse(s.export_started_at + 'Z') : Date.now();
+      if (Date.now() - started > EXPORT_TIMEOUT_MS) {
+        await setSnapshotExport(env, s.id, 'error');
+        if (s.export_instance_id) await terminateInstance(env, s.export_instance_id).catch(() => {});
+      }
+    } catch {
+      /* skip this tick */
+    }
+  }
+  // Belt-and-suspenders: kill any export helper running > 45 min, regardless of DB state.
+  try {
+    for (const h of await listExportHelpers(env)) {
+      if (Date.now() - Date.parse(h.launchTime) > 45 * 60 * 1000) await terminateInstance(env, h.id).catch(() => {});
+    }
+  } catch {
+    /* skip */
+  }
+}
+
+// Bootstrap script for the throwaway converter instance (Amazon Linux 2023).
+function exportUserData(p: { region: string; snapshotId: string; bucket: string; key: string; format: string }): string {
+  return `#!/bin/bash
+exec > /var/log/gitvm-export.log 2>&1
+set -x
+REGION="${p.region}"
+SNAP="${p.snapshotId}"
+BUCKET="${p.bucket}"
+KEY="${p.key}"
+FMT="${p.format}"
+dnf install -y qemu-img || true
+TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 600")
+md() { curl -s -H "X-aws-ec2-metadata-token: $TOKEN" "http://169.254.169.254/latest/meta-data/$1"; }
+IID=$(md instance-id)
+AZ=$(md placement/availability-zone)
+VOL=$(aws ec2 create-volume --region "$REGION" --snapshot-id "$SNAP" --availability-zone "$AZ" --volume-type gp3 --tag-specifications 'ResourceType=volume,Tags=[{Key=managed-by,Value=git-vm-portal-export}]' --query VolumeId --output text)
+aws ec2 wait volume-available --region "$REGION" --volume-ids "$VOL"
+aws ec2 attach-volume --region "$REGION" --volume-id "$VOL" --instance-id "$IID" --device /dev/sdf
+# Delete this scratch volume when the instance terminates (cost guard if the script dies).
+aws ec2 modify-instance-attribute --region "$REGION" --instance-id "$IID" --block-device-mappings '[{"DeviceName":"/dev/sdf","Ebs":{"DeleteOnTermination":true}}]' || true
+for i in $(seq 1 40); do DEV=$(lsblk -dpno NAME | grep -E 'nvme[1-9]n1$' | head -1); [ -n "$DEV" ] && break; sleep 3; done
+qemu-img convert -p -f raw -O "$FMT" "$DEV" "/disk.$FMT"
+aws s3 cp "/disk.$FMT" "s3://$BUCKET/$KEY"
+aws ec2 detach-volume --region "$REGION" --volume-id "$VOL" || true
+sleep 8
+aws ec2 delete-volume --region "$REGION" --volume-id "$VOL" || true
+shutdown -h now
+`;
+}
+
 app.onError((err, c) => {
   reportError(c.env.SENTRY_DSN, err, c.executionCtx, { path: c.req.path });
   return c.json({ error: 'internal' }, 500);
@@ -1208,6 +1303,7 @@ export default {
           await retryFailed(env);
           await enforceExpiry(env);
           await syncSnapshots(env);
+          await syncExports(env);
         })()
       );
     }
