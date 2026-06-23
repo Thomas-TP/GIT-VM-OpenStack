@@ -1,6 +1,7 @@
 # ADR 0001 — Garder AWS EC2 + Cloudflare Workers
 
-**Statut** : Acté (2026-06-19) · **Décideurs** : binôme Groupe 3
+**Statut** : Acté (2026-06-19) · ⤴︎ **Superseté pour le compute** par [ADR 0010](0010-migration-openstack.md)
+(2026-06-23 : portage AWS EC2 → OpenStack/Infomaniak) · **Décideurs** : binôme Groupe 3
 
 ## Contexte
 

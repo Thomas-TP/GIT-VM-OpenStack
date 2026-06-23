@@ -1,8 +1,8 @@
-# Configuration & secrets — GIT VM Portal
+# Configuration & secrets — GIT VM Portal (OpenStack)
 
-> Toutes les variables, les secrets, les permissions et les procédures de **publication / rotation
-> des credentials**. Référence transverse de sécurité — voir [ADR 0006](adr/0006-gestion-des-secrets.md).
-> Dernière mise à jour : 2026-06-19.
+> Toutes les variables, les secrets, les credentials OpenStack et les procédures de **publication /
+> rotation**. Référence transverse de sécurité — voir [ADR 0006](adr/0006-gestion-des-secrets.md) et
+> [ADR 0010](adr/0010-migration-openstack.md). Dernière mise à jour : 2026-06-23.
 
 ---
 
@@ -12,9 +12,8 @@
 - **Secrets** (sensibles) → **Cloudflare Wrangler Secrets** (`wrangler secret put`). **Jamais commités.**
 - **En local** → fichier `.dev.vars` (ignoré par Git) pour vars + secrets de dev.
 
-> 🚫 **Aucun secret en clair dans le repo, les logs, les commits ou le chat.** Les scripts AWS lisent
-> les creds depuis l'environnement, jamais en dur. Si on te transmet une clé, utilise-la en local et
-> **fais-la roter ensuite**.
+> 🚫 **Aucun secret en clair dans le repo, les logs, les commits.** Les scripts OpenStack lisent les
+> creds depuis l'environnement (openrc), jamais en dur.
 
 ## 2. Variables publiques (`wrangler.jsonc` → `vars`)
 
@@ -23,16 +22,21 @@
 | `ALLOWED_EMAIL_DOMAINS` | `satom.ch,git.swiss` | Domaines email autorisés à se connecter |
 | `ADMIN_EMAILS` | `thomas.prudhomme@satom.ch,…` | Admins « bootstrap » (toujours admin) |
 | `ENTRA_TENANT_ID` | `33a7a298-…` | Tenant Entra ID |
-| `ENTRA_CLIENT_ID` | `0bfcdbd6-…` | App registration Entra |
-| `AWS_REGION` | `eu-central-2` | Région EC2 (Zurich) |
-| `AWS_SUBNET_ID` | `subnet-0247cdf4…` | Subnet des VM |
-| `AWS_SECURITY_GROUP_ID` | `sg-0f842f10…` | Security group partagé (SSH 22, RDP 3389) |
-| `AWS_AMI_ID` | `ami-0fd7f34c…` | AMI legacy par défaut (les OS du catalogue sont dans `src/presets.ts`) |
-| `AWS_KEY_NAME` | *(vide)* | Réservé ; les clés sont créées par VM |
-| `APP_URL` | `https://git-vm-portal.…workers.dev` | URL publique (redirects, emails) |
+| `ENTRA_CLIENT_ID` | `07545850-…` | App registration Entra (*GIT-VM-OpenStack*) |
+| `OS_AUTH_URL` | `https://api.pub1.infomaniak.cloud/identity/v3` | Endpoint Keystone v3 |
+| `OS_REGION` | `dc3-a` | Région Infomaniak |
+| `OS_PROJECT_ID` | `9e3188971b0b453da67698c6c7d75e27` | Projet OpenStack (PCP-8V8ABFJ) |
+| `OS_USER_DOMAIN_NAME` | `Default` | Domaine de l'utilisateur Keystone |
+| `OS_USERNAME` | `PCU-8V8ABFJ` | Utilisateur OpenStack (API) |
+| `OS_NETWORK_ID` | `dcf25c41-…` | Réseau public partagé `ext-net1` (IP publique directe) |
+| `OS_SECURITY_GROUP_NAME` | `git-vm-portal` | Security group appliqué aux VM (ingress 22/3389/ICMP) |
+| `APP_URL` | `https://git-vm-portal-openstack.…workers.dev` | URL publique (redirects, emails) |
 | `GRAFANA_URL` | *(vide)* | Lien Grafana affiché dans l'onglet Monitoring (admin) |
 | `MAIL_ENABLED` | `true` | Active l'envoi EmailJS |
 | `SCHEDULED_STOP` | `true` | Active l'extinction nocturne (cron 19 h UTC) |
+| `IDLE_STOP` | `false` | Arrêt sur inactivité CPU — **désactivé** (pas de télémétrie fiable, voir §5.2) |
+| `IDLE_STOP_HOURS` | `3` | Heures d'inactivité avant arrêt (si `IDLE_STOP=true`) |
+| `HARDENING` | `true` | Durcissement in-VM (DNS filtré, blocage P2P, hostname) |
 | `SENTRY_DSN` | *(vide)* | DSN Sentry (optionnel) |
 | `EMAILJS_PUBLIC_KEY` | `KlKcUV9e…` | Clé publique EmailJS |
 | `EMAILJS_SERVICE_ID` | `service_aeuc86a` | Service EmailJS |
@@ -44,17 +48,15 @@
 |---|---|---|
 | `SESSION_SECRET` | aléatoire fort (≥ 32 octets) | Signe les JWT de session **ET** dérive la clé AES-GCM de chiffrement |
 | `ENTRA_CLIENT_SECRET` | Entra → Certificates & secrets | Échange du code OIDC contre l'id_token |
-| `AWS_ACCESS_KEY_ID` | IAM user dédié | Auth API EC2 |
-| `AWS_SECRET_ACCESS_KEY` | IAM user dédié | Auth API EC2 |
+| `OS_PASSWORD` | mot de passe du user OpenStack `OS_USERNAME` | Auth Keystone (token API) |
 | `EMAILJS_PRIVATE_KEY` | EmailJS → Account → API Keys | Auth serveur EmailJS |
-| `GRAFANA_TOKEN` | aléatoire fort (optionnel) | Bearer des endpoints `/api/monitoring/*` (Grafana, cf. [monitoring/](../monitoring/README.md)). Non défini → endpoints `503`. |
+| `GRAFANA_TOKEN` | aléatoire fort (optionnel) | Bearer des endpoints `/api/monitoring/*`. Non défini → endpoints `503`. |
 
 ```bash
 # Définir / mettre à jour un secret (prod)
 npx wrangler secret put SESSION_SECRET
 npx wrangler secret put ENTRA_CLIENT_SECRET
-npx wrangler secret put AWS_ACCESS_KEY_ID
-npx wrangler secret put AWS_SECRET_ACCESS_KEY
+npx wrangler secret put OS_PASSWORD
 npx wrangler secret put EMAILJS_PRIVATE_KEY
 
 # Lister les secrets définis (noms uniquement)
@@ -71,76 +73,75 @@ Fichier `.dev.vars` à la racine (déjà dans `.gitignore`) :
 ```ini
 SESSION_SECRET="dev-only-change-me-0123456789abcdef"
 ENTRA_CLIENT_SECRET="..."
-AWS_ACCESS_KEY_ID="..."
-AWS_SECRET_ACCESS_KEY="..."
+OS_PASSWORD="..."
 EMAILJS_PRIVATE_KEY="..."
 ```
 
 `wrangler dev` charge `.dev.vars` automatiquement. Pour les scripts `scripts/*.mjs`, exporter les
-variables AWS dans le shell (PowerShell) :
+variables OpenStack dans le shell (PowerShell) — ou simplement *sourcer* l'openrc Infomaniak :
 
 ```powershell
-$env:AWS_ACCESS_KEY_ID='...'; $env:AWS_SECRET_ACCESS_KEY='...'
-$env:AWS_REGION='eu-central-2'; $env:AWS_SECURITY_GROUP_ID='sg-0f842f10ca3c7b2d1'
-node scripts/aws-amis.mjs
+$env:OS_AUTH_URL='https://api.pub1.infomaniak.cloud/identity/v3'
+$env:OS_USERNAME='PCU-8V8ABFJ'; $env:OS_PASSWORD='...'
+$env:OS_PROJECT_ID='9e3188971b0b453da67698c6c7d75e27'
+$env:OS_USER_DOMAIN_NAME='Default'; $env:OS_REGION='dc3-a'
+node scripts/openstack-discover.mjs
 ```
 
-## 5. AWS IAM
+## 5. OpenStack (Infomaniak Public Cloud)
 
-**Compte** : `437659978697` · **Région** : `eu-central-2`.
+**Projet** : `PCP-8V8ABFJ` (`OS_PROJECT_ID=9e3188971b0b453da67698c6c7d75e27`) · **Région** : `dc3-a` ·
+**Keystone** : `https://api.pub1.infomaniak.cloud/identity/v3`.
 
-### 5.1 Permissions du Worker (runtime)
+### 5.1 Ce que fait le Worker (runtime)
 
-Politique minimale pour le user IAM dont les clés sont dans les secrets Cloudflare :
+Le Worker s'authentifie auprès de **Keystone** (user `OS_USERNAME` + `OS_PASSWORD`, scope projet),
+met le token en cache, puis appelle les services depuis le **catalogue** :
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Action": [
-      "ec2:RunInstances",
-      "ec2:DescribeInstances",
-      "ec2:DescribeImages",
-      "ec2:TerminateInstances",
-      "ec2:StartInstances",
-      "ec2:StopInstances",
-      "ec2:RebootInstances",
-      "ec2:CreateKeyPair",
-      "ec2:DeleteKeyPair",
-      "ec2:CreateTags"
-    ],
-    "Resource": "*"
-  }]
-}
-```
+- **Nova** (`compute`) : créer / décrire / start / stop / reboot / supprimer les serveurs, keypairs,
+  snapshot (`createImage`).
+- **Glance** (`image`) : images OS + snapshots (statut, suppression).
+- **Neutron** (`network`) : rattachement au réseau public `ext-net1`, security group.
 
-### 5.2 Permissions des scripts d'admin (one-off)
+Le rôle « member » par défaut du projet Infomaniak suffit (création/gestion de serveurs, keypairs,
+images, lecture réseau). Aucune politique IAM à écrire (contrairement à AWS).
 
-`scripts/aws-amis.mjs` et `scripts/aws-open-rdp.mjs` nécessitent en plus :
+### 5.2 Télémétrie CPU (arrêt sur inactivité)
 
-```json
-{ "Effect": "Allow",
-  "Action": ["ec2:DescribeSecurityGroups", "ec2:AuthorizeSecurityGroupIngress"],
-  "Resource": "*" }
-```
+Infomaniak expose **Gnocchi** (`metric`) et **Aodh** (`alarm`), mais transformer le compteur
+cumulatif `cpu` en % d'utilisation fiable est fragile sur cloud public (risque de faux arrêts).
+`maxCpuOverWindow()` renvoie donc `null` et **`IDLE_STOP=false`**. Les autres garde-fous coûts
+(extinction nocturne 19 h, planifications par VM, suppression à l'échéance) restent actifs.
 
-> Bonne pratique : un IAM user **distinct** pour ces scripts (creds locaux, jamais dans Cloudflare),
-> séparé du user runtime du Worker.
+### 5.3 Réseau & security group
+
+- `ext-net1` (`OS_NETWORK_ID`) est **partagé** et porte des **sous-réseaux IPv4 publics**
+  (195.15.x / 188.213.x). Une VM rattachée directement obtient une **IP publique routable** — pas de
+  floating IP, pas de routeur (équivalent de l'auto-public-IP EC2).
+- Le security group `git-vm-portal` (créé par `scripts/openstack-setup.mjs`) ouvre **en entrée**
+  SSH 22, RDP 3389, ICMP. L'**egress** reste ouvert par défaut (installs de cours). Pour le verrouiller
+  en liste blanche (DNS Cloudflare uniquement, 80/443/NTP/SSH/DHCP) : `scripts/openstack-harden-sg.mjs`.
+
+### 5.4 Scripts d'admin (one-off)
+
+| Script | Rôle |
+|---|---|
+| `scripts/openstack-discover.mjs` | Lister flavors / images / réseaux / SG (rafraîchir les UUID d'images de `src/presets.ts`) |
+| `scripts/openstack-setup.mjs` | Créer/compléter le SG `git-vm-portal` (idempotent) |
+| `scripts/openstack-harden-sg.mjs` | (optionnel) Verrouiller l'egress du SG en liste blanche |
 
 ## 6. Microsoft Entra ID
 
-App registration (Azure Portal → Entra ID → App registrations) :
+App registration (Azure Portal → Entra ID → App registrations → *GIT-VM-OpenStack*) :
 
 1. **Redirect URI** (type *Web*) : `https://<APP_URL>/auth/callback`
-   (prod : `https://git-vm-portal.thomas-prudhomme.workers.dev/auth/callback`).
+   (prod : `https://git-vm-portal-openstack.thomas-prudhomme.workers.dev/auth/callback`).
 2. **Client ID** → `ENTRA_CLIENT_ID` (var). **Tenant ID** → `ENTRA_TENANT_ID` (var).
 3. **Client secret** (Certificates & secrets) → `ENTRA_CLIENT_SECRET` (secret).
 4. **Permissions** : `openid`, `profile`, `email` (scopes OIDC standard).
 5. Les utilisateurs doivent appartenir à un domaine de `ALLOWED_EMAIL_DOMAINS`.
 
 > 90 % des pannes de login viennent d'ici (redirect URI / secret / domaine), pas du code.
-> Checklist : [`analyse/04-diagnostic-login.md`](analyse/04-diagnostic-login.md).
 
 ## 7. EmailJS
 
@@ -152,13 +153,10 @@ Mettre `MAIL_ENABLED=false` pour désactiver proprement (les envois sont alors l
 
 | Credential | Procédure |
 |---|---|
-| **Clé AWS** | IAM → créer une nouvelle paire → `wrangler secret put AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` → re-déployer → **supprimer** l'ancienne clé. |
+| **`OS_PASSWORD`** | Changer le mot de passe du user OpenStack (Infomaniak) → `wrangler secret put OS_PASSWORD` → re-déployer. |
 | **Secret Entra** | Entra → nouveau secret → `wrangler secret put ENTRA_CLIENT_SECRET` → re-déployer → supprimer l'ancien. |
 | **EmailJS** | Régénérer la clé privée → `wrangler secret put EMAILJS_PRIVATE_KEY`. |
-| **`SESSION_SECRET`** | Générer une nouvelle valeur → `wrangler secret put` → **déconnecte tout le monde** et rend les clés/mots de passe stockés illisibles (à re-télécharger / re-provisionner). À éviter sauf compromission. |
-
-> 🔁 **Après toute fuite** (clé partagée en clair, commit accidentel) : **révoquer immédiatement**,
-> roter, puis purger l'historique Git si nécessaire (`git filter-repo`).
+| **`SESSION_SECRET`** | Générer une nouvelle valeur → `wrangler secret put` → **déconnecte tout le monde** et rend les clés/mots de passe stockés illisibles. À éviter sauf compromission. |
 
 ## 9. Checklist « nouveau credential publié »
 

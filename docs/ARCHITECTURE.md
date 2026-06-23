@@ -2,7 +2,7 @@
 
 > Vue technique du système : composants, flux, modèle de données, sécurité.
 > Voir aussi [`../AGENTS.md`](../AGENTS.md), les [ADR](adr/) et [`DEPLOYMENT.md`](DEPLOYMENT.md).
-> Dernière mise à jour : 2026-06-19.
+> Dernière mise à jour : 2026-06-23.
 
 ---
 
@@ -10,7 +10,7 @@
 
 Une seule unité déployable (un **Cloudflare Worker**) sert à la fois la **SPA React** (static assets)
 et l'**API JSON** (Hono), et exécute des **tâches cron**. L'état désiré vit dans **D1** ; le réel vit
-dans **AWS EC2** ; une cron réconcilie les deux en continu.
+dans **OpenStack** (Infomaniak) ; une cron réconcilie les deux en continu.
 
 ```mermaid
 flowchart TB
@@ -25,11 +25,11 @@ flowchart TB
     end
 
     W -->|OIDC| E[Microsoft Entra ID]
-    W -->|aws4fetch / EC2 API| AWS[AWS EC2<br/>eu-central-2]
+    W -->|Keystone/Nova/Glance/Neutron| OS[OpenStack<br/>Infomaniak dc3-a]
     W -->|REST| M[EmailJS]
     W -.->|erreurs| S[Sentry optionnel]
 
-    W -. cron */2 min .-> AWS
+    W -. cron */2 min .-> OS
 ```
 
 ## 2. Composants
@@ -40,7 +40,7 @@ flowchart TB
 | **OIDC** | Flux authorization-code Entra ID (sans librairie) | `src/oidc.ts` |
 | **Crypto** | JWT HMAC (sessions), AES-GCM (clés SSH + mots de passe Windows) | `src/crypto.ts` |
 | **DB** | Accès D1 (requests, vms, users, audit, comments, metrics) | `src/db.ts` |
-| **AWS** | Client EC2 minimal (query protocol, réponses XML parsées par regex) | `src/aws.ts` |
+| **OpenStack** | Client Keystone/Nova/Glance/Neutron (REST JSON, token caché) | `src/openstack.ts` |
 | **Catalogue** | PERF × STORAGE × OS + coûts (source de vérité) | `src/presets.ts` |
 | **Email** | Notifications EmailJS | `src/email.ts` |
 | **SPA** | UI React (auth, Mes VM, Créer une VM, Détail, Admin) | `web/src/` |
@@ -75,9 +75,9 @@ Diagnostic des pannes de login : [`analyse/04-diagnostic-login.md`](analyse/04-d
 stateDiagram-v2
     [*] --> pending: POST /api/requests
     pending --> rejected: admin refuse
-    pending --> provisioning: admin approuve<br/>(clé SSH + RunInstances)
-    provisioning --> active: cron — running + IP publique<br/>(email « prête »)
-    provisioning --> failed: erreur AWS
+    pending --> provisioning: admin approuve<br/>(clé SSH + create server)
+    provisioning --> active: cron — ACTIVE + IP publique<br/>(email « prête »)
+    provisioning --> failed: erreur OpenStack
     failed --> provisioning: retry cron (max 3)
     active --> terminated: end_date — auto-suppression<br/>(terminate + expired_at) · ADR 0008
     active --> terminated: terminate (user/admin)
@@ -96,7 +96,7 @@ par la **cron** quand l'instance tourne avec une IP. À l'échéance, la VM est 
 
 | Cron | Fonction | Effet |
 |---|---|---|
-| `*/2 * * * *` | `reconcile` + `applySchedules` + `retryFailed` + `enforceExpiry` | sync AWS↔DB, drift, plannings, retries, échéances |
+| `*/2 * * * *` | `reconcile` + `applySchedules` + `retryFailed` + `enforceExpiry` | sync OpenStack↔DB, drift, plannings, retries, échéances |
 | `0 19 * * *` | `scheduledStop` | arrête les VM running sans planning (garde-fou coûts) |
 
 - **`reconcile`** : `provisioning → active` (running + IP, + email), drift (instance disparue →
@@ -144,7 +144,7 @@ erDiagram
     vms {
         int id PK
         int request_id FK
-        text aws_instance_id
+        text aws_instance_id "UUID serveur OpenStack"
         text public_ip
         text state
         text ssh_key_name
@@ -159,21 +159,22 @@ Migrations **100 % additives** (`ADD COLUMN`) pour éviter toute reconstruction 
 
 ## 7. Catalogue & provisioning
 
-Une demande compose **PERF** (type d'instance) × **STORAGE** (disque gp3) × **OS** (AMI). Les AMIs
-sont des **IDs `eu-central-2` concrets et vérifiés** (`scripts/aws-amis.mjs`).
+Une demande compose **PERF** (stem de flavor) × **STORAGE** (disque 20/50/80) × **OS** (image Glance).
+Le flavor effectif = `${stem}-disk${sizeGb}-perf1` ; les images sont des **UUID `dc3-a` concrets et
+vérifiés** (`scripts/openstack-discover.mjs`).
 
 ```mermaid
 flowchart LR
-    R[Demande approuvée] --> K[CreateKeyPair ed25519]
+    R[Demande approuvée] --> K[Keypair RSA<br/>Nova os-keypairs]
     K --> O{OS.connect ?}
-    O -->|ssh Linux| L[RunInstances<br/>clé SSH]
-    O -->|rdp Windows| Wn[Génère mot de passe<br/>UserData net user<br/>RunInstances]
+    O -->|ssh Linux| L[Create server<br/>clé SSH]
+    O -->|rdp Windows| Wn[Génère mot de passe<br/>user_data net user<br/>Create server]
     L --> V[(vms : ssh)]
     Wn --> Vp[(vms : rdp + admin_password chiffré)]
 ```
 
 - **Linux** → SSH avec la clé privée téléchargeable (chiffrée au repos).
-- **Windows** → RDP. Mot de passe Administrateur **généré**, injecté via **UserData (EC2Launch)**,
+- **Windows** → RDP. Mot de passe Administrateur **généré**, injecté via **user_data (cloudbase-init)**,
   **chiffré AES-GCM**, révélé au propriétaire via `GET /api/requests/:id/password` (audité).
   Nécessite le **port 3389** ouvert sur le SG. Voir [ADR 0007](adr/0007-catalogue-os-et-windows-rdp.md).
 
@@ -189,15 +190,16 @@ flowchart LR
 | Traçabilité | `audit_log` sur login, demande, décision, provisioning, téléchargement clé, révélation mot de passe |
 | Rate limiting | Max 5 demandes / heure / utilisateur |
 
-## 9. Réseau AWS
+## 9. Réseau OpenStack
 
-VPC unique, **1 subnet** (`subnet-0247cdf408e6fb4d1`) + **1 security group** partagé
-(`sg-0f842f10ca3c7b2d1`, `eu-central-2`). Ingress : **tcp/22** (SSH) et **tcp/3389** (RDP Windows,
-ouvert via `scripts/aws-open-rdp.mjs`). IP publique auto-assignée par instance.
+Réseau **partagé `ext-net1`** (`OS_NETWORK_ID`) à **sous-réseaux IPv4 publics** : une VM rattachée
+directement obtient une **IP publique routable** (pas de floating IP, pas de routeur). **1 security
+group** partagé `git-vm-portal` (`scripts/openstack-setup.mjs`). Ingress : **tcp/22** (SSH),
+**tcp/3389** (RDP Windows), **ICMP**. Egress ouvert par défaut (installs de cours).
 
-> ⚠️ **Limite connue** : pas d'isolation réseau par classe/cours (un seul subnet + SG). 3389 est
-> ouvert en `0.0.0.0/0` pour la démo — **à restreindre** à une plage IP en production. Voir
-> [`analyse/03-ecarts-et-dette-technique.md`](analyse/03-ecarts-et-dette-technique.md).
+> ⚠️ **Limite connue** : pas d'isolation réseau par classe/cours (un seul réseau + SG). 22/3389 sont
+> ouverts en `0.0.0.0/0` pour la démo — **à restreindre** à une plage IP en production. L'egress peut
+> être verrouillé en liste blanche via `scripts/openstack-harden-sg.mjs`.
 
 ## 10. Surface API
 
