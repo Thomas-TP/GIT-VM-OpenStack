@@ -1,11 +1,16 @@
 // A VM request is composed of three independent choices:
-//   performance (instance type) × storage (disk) × OS (AMI).
-// Prices are approximate on-demand rates for eu-central-2 (Zurich), USD.
+//   performance (flavor) × storage (root disk) × OS (image).
+// On Infomaniak the flavor name encodes BOTH cpu/ram AND the root disk size:
+//   "<stem>-disk<sizeGb>-perf1"  e.g.  a2-ram4-disk20-perf1
+// So the effective flavor = `${perf.flavorStem}-disk${storage.sizeGb}-perf1`,
+// resolved to a flavor UUID at launch time (see openstack.ts).
+// Prices are approximate hourly rates for Infomaniak Public Cloud (dc3-a), CHF≈USD.
 
 export interface PerfPreset {
   id: string;
   label: string;
-  instanceType: string;
+  /** Flavor name stem (cpu/ram part), combined with the storage size at launch. */
+  flavorStem: string;
   vcpu: number;
   ramGb: number;
   hourlyUsd: number;
@@ -27,6 +32,7 @@ export interface OsPreset {
   label: string;
   /** Distribution family — drives the icon/colour in the picker. */
   family: 'ubuntu' | 'debian' | 'amazon' | 'rocky' | 'alma' | 'windows';
+  /** Glance image UUID (Infomaniak dc3-a). Field kept named `ami` to avoid churn. */
   ami: string;
   /** Login user for SSH. For Windows this is the RDP user (Administrator). */
   sshUser: string;
@@ -40,48 +46,47 @@ export interface OsPreset {
   hidden?: boolean;
 }
 
-// Free-Tier only: the AWS account is restricted to free-tier-eligible instance
-// types (verified via scripts/aws-freetier.mjs). x86_64 only (our AMIs are x86_64,
-// so the t4g/ARM free types are excluded). Legacy ids are kept hidden and remapped
-// to a free-tier type so existing requests still provision.
+// Performance tiers map to an Infomaniak flavor "stem" (cpu/ram). The disk size
+// comes from the STORAGE choice, so the final flavor is `${stem}-disk${sizeGb}-perf1`.
+// Legacy ids (eco/std/perf/pro/max) are kept hidden and remapped so any old
+// request still resolves to a valid flavor.
 export const PERF: Record<string, PerfPreset> = {
-  micro: { id: 'micro', label: 'Micro', instanceType: 't3.micro', vcpu: 2, ramGb: 1, hourlyUsd: 0.0136, description: 'Free Tier — tests légers, scripts, apprentissage.' },
-  small: { id: 'small', label: 'Small', instanceType: 't3.small', vcpu: 2, ramGb: 2, hourlyUsd: 0.0272, description: 'Free Tier — petits services, dev, la plupart des cours.', recommended: true },
-  flex: { id: 'flex', label: 'Flex', instanceType: 'c7i-flex.large', vcpu: 2, ramGb: 4, hourlyUsd: 0.0907, description: 'Free Tier — 4 Go, plus confortable (Windows, conteneurs).' },
-  // Legacy (hidden) — remappés vers un type Free Tier pour les demandes existantes.
-  eco: { id: 'eco', label: 'Eco', instanceType: 't3.small', vcpu: 2, ramGb: 2, hourlyUsd: 0.0272, hidden: true },
-  std: { id: 'std', label: 'Standard', instanceType: 't3.small', vcpu: 2, ramGb: 2, hourlyUsd: 0.0272, hidden: true },
-  perf: { id: 'perf', label: 'Performance', instanceType: 'c7i-flex.large', vcpu: 2, ramGb: 4, hourlyUsd: 0.0907, hidden: true },
-  pro: { id: 'pro', label: 'Pro', instanceType: 'c7i-flex.large', vcpu: 2, ramGb: 4, hourlyUsd: 0.0907, hidden: true },
-  max: { id: 'max', label: 'Max', instanceType: 'c7i-flex.large', vcpu: 2, ramGb: 4, hourlyUsd: 0.0907, hidden: true },
+  micro: { id: 'micro', label: 'Micro', flavorStem: 'a1-ram2', vcpu: 1, ramGb: 2, hourlyUsd: 0.012, description: 'Tests légers, scripts, apprentissage.' },
+  small: { id: 'small', label: 'Small', flavorStem: 'a2-ram4', vcpu: 2, ramGb: 4, hourlyUsd: 0.024, description: 'Dev, petits services, la plupart des cours.', recommended: true },
+  flex: { id: 'flex', label: 'Flex', flavorStem: 'a4-ram8', vcpu: 4, ramGb: 8, hourlyUsd: 0.048, description: '4 vCPU / 8 Go — confortable (Windows, conteneurs).' },
+  // Legacy (hidden) — remappés vers un stem valide pour les demandes existantes.
+  eco: { id: 'eco', label: 'Eco', flavorStem: 'a1-ram2', vcpu: 1, ramGb: 2, hourlyUsd: 0.012, hidden: true },
+  std: { id: 'std', label: 'Standard', flavorStem: 'a2-ram4', vcpu: 2, ramGb: 4, hourlyUsd: 0.024, hidden: true },
+  perf: { id: 'perf', label: 'Performance', flavorStem: 'a4-ram8', vcpu: 4, ramGb: 8, hourlyUsd: 0.048, hidden: true },
+  pro: { id: 'pro', label: 'Pro', flavorStem: 'a4-ram8', vcpu: 4, ramGb: 8, hourlyUsd: 0.048, hidden: true },
+  max: { id: 'max', label: 'Max', flavorStem: 'a8-ram16', vcpu: 8, ramGb: 16, hourlyUsd: 0.096, hidden: true },
 };
 
-// Free-Tier EBS = 30 Go. On reste ≤ 30 Go ; les tailles supérieures (payantes) sont
-// conservées masquées pour résoudre les demandes existantes.
+// Storage = root disk size. Sizes MUST match an existing flavor disk variant
+// (Infomaniak offers disk 20 / 50 / 80). Windows images require ≥ 60 Go → s80.
 export const STORAGE: Record<string, StoragePreset> = {
-  s20: { id: 's20', label: '20 Go SSD', sizeGb: 20, description: 'Free Tier — suffisant pour un OS Linux + outils.' },
-  s30: { id: 's30', label: '30 Go SSD', sizeGb: 30, description: 'Free Tier — maximum gratuit, requis pour Windows.', recommended: true },
-  s50: { id: 's50', label: '50 Go SSD', sizeGb: 50, hidden: true },
-  s100: { id: 's100', label: '100 Go SSD', sizeGb: 100, hidden: true },
-  s250: { id: 's250', label: '250 Go SSD', sizeGb: 250, hidden: true },
-  s500: { id: 's500', label: '500 Go SSD', sizeGb: 500, hidden: true },
+  s20: { id: 's20', label: '20 Go SSD', sizeGb: 20, description: 'Suffisant pour un OS Linux + outils.', recommended: true },
+  s50: { id: 's50', label: '50 Go SSD', sizeGb: 50, description: 'Confortable, requis pour Windows / gros projets.' },
+  s80: { id: 's80', label: '80 Go SSD', sizeGb: 80, description: 'Maximum — Windows avec applications.' },
 };
 
-// All AMIs are concrete eu-central-2 IDs verified via DescribeImages
-// (scripts/aws-amis.mjs). Run that script to refresh them when they age out.
+// All `ami` values are concrete Infomaniak Glance image UUIDs (dc3-a), discovered
+// via `node scripts/openstack-discover.mjs`. Refresh them if images are retired.
+// Note vs AWS: Amazon Linux & AlmaLinux aren't offered by Infomaniak — replaced
+// by additional Ubuntu/Debian/Rocky options (all with well-known cloud users).
 export const OS: Record<string, OsPreset> = {
-  ubuntu2404: { id: 'ubuntu2404', label: 'Ubuntu 24.04 LTS', family: 'ubuntu', ami: 'ami-06d105ac7e7acb6bf', sshUser: 'ubuntu', connect: 'ssh', description: 'La distribution Linux la plus répandue. Idéale pour débuter.', recommended: true },
-  debian12: { id: 'debian12', label: 'Debian 12 (Bookworm)', family: 'debian', ami: 'ami-09632a90fa7faa421', sshUser: 'admin', connect: 'ssh', description: 'Stable et légère, la référence des serveurs.' },
-  al2023: { id: 'al2023', label: 'Amazon Linux 2023', family: 'amazon', ami: 'ami-0255eb7098bd657ae', sshUser: 'ec2-user', connect: 'ssh', description: 'Optimisée pour AWS, base RHEL, support long terme.' },
-  rocky9: { id: 'rocky9', label: 'Rocky Linux 9', family: 'rocky', ami: 'ami-03326408f81d44297', sshUser: 'rocky', connect: 'ssh', description: 'Compatible RHEL, parfaite pour l’entreprise (dnf/yum).' },
-  alma9: { id: 'alma9', label: 'AlmaLinux 9', family: 'alma', ami: 'ami-03668eab0636b8430', sshUser: 'ec2-user', connect: 'ssh', description: 'Clone RHEL communautaire, stable et pérenne.' },
-  windows2022: { id: 'windows2022', label: 'Windows Server 2022', family: 'windows', ami: 'ami-0cbe390e7c8ac76e2', sshUser: 'Administrator', connect: 'rdp', minStorageGb: 30, description: 'Édition serveur : rôles, services, Active Directory, IIS. Accès RDP.' },
+  ubuntu2404: { id: 'ubuntu2404', label: 'Ubuntu 24.04 LTS', family: 'ubuntu', ami: '59f6d446-584e-444f-8e05-62eaacf6817d', sshUser: 'ubuntu', connect: 'ssh', description: 'La distribution Linux la plus répandue. Idéale pour débuter.', recommended: true },
+  ubuntu2204: { id: 'ubuntu2204', label: 'Ubuntu 22.04 LTS', family: 'ubuntu', ami: '98c7b1cd-920f-4989-9227-d3af73ee53d8', sshUser: 'ubuntu', connect: 'ssh', description: 'LTS éprouvée, large compatibilité.' },
+  debian12: { id: 'debian12', label: 'Debian 12 (Bookworm)', family: 'debian', ami: 'c03b8f35-78e9-40dc-9208-9625c2a98756', sshUser: 'debian', connect: 'ssh', description: 'Stable et légère, la référence des serveurs.' },
+  debian13: { id: 'debian13', label: 'Debian 13 (Trixie)', family: 'debian', ami: '2dc5c057-94c5-4b3a-977d-ef7318724c48', sshUser: 'debian', connect: 'ssh', description: 'La dernière Debian stable.' },
+  rocky9: { id: 'rocky9', label: 'Rocky Linux 9', family: 'rocky', ami: 'ea418e54-cd99-4d60-a561-12f12607eb9b', sshUser: 'rocky', connect: 'ssh', description: 'Compatible RHEL, parfaite pour l’entreprise (dnf/yum).' },
+  windows2022: { id: 'windows2022', label: 'Windows Server 2022', family: 'windows', ami: 'd9b42bf9-34a9-44ca-81d7-b5ce52239a96', sshUser: 'Administrator', connect: 'rdp', minStorageGb: 60, description: 'Édition serveur : rôles, services, Active Directory, IIS. Accès RDP.' },
   // « Poste de travail » : Windows Server 2025 avec expérience Bureau (GUI complet via RDP).
-  // EC2 ne propose pas de Windows 10/11 client (licence) ; le Full Base = bureau Windows utilisable.
-  windowsDesktop: { id: 'windowsDesktop', label: 'Windows · Poste de travail', family: 'windows', ami: 'ami-09b747e7c8f4d2cd6', sshUser: 'Administrator', connect: 'rdp', minStorageGb: 30, description: 'Bureau Windows complet (Windows Server 2025, expérience Bureau) pour usage utilisateur. Accès RDP.' },
-  // Hidden: kept so existing requests still resolve, removed from the picker
-  // (Ubuntu 24.04 is the single Ubuntu choice now).
-  ubuntu2204: { id: 'ubuntu2204', label: 'Ubuntu 22.04 LTS', family: 'ubuntu', ami: 'ami-0fd7f34c2a7d8427b', sshUser: 'ubuntu', connect: 'ssh', hidden: true },
+  windowsDesktop: { id: 'windowsDesktop', label: 'Windows · Poste de travail', family: 'windows', ami: 'a3dd20e2-52e6-4f0c-915a-0c448909f5ef', sshUser: 'Administrator', connect: 'rdp', minStorageGb: 60, description: 'Bureau Windows complet (Windows Server 2025, expérience Bureau). Accès RDP.' },
+  // Hidden legacy ids (no longer offered by Infomaniak) — remapped to Rocky 9 so
+  // any pre-existing request still resolves to a bootable image.
+  al2023: { id: 'al2023', label: 'Amazon Linux 2023', family: 'amazon', ami: 'ea418e54-cd99-4d60-a561-12f12607eb9b', sshUser: 'rocky', connect: 'ssh', hidden: true },
+  alma9: { id: 'alma9', label: 'AlmaLinux 9', family: 'alma', ami: 'ea418e54-cd99-4d60-a561-12f12607eb9b', sshUser: 'rocky', connect: 'ssh', hidden: true },
 };
 
 // Bundles d'outils par cours, préinstallés sur la VM via cloud-init au premier
@@ -248,7 +253,9 @@ export function buildWindowsCourseInstall(courseId: string | null | undefined): 
   ].join('\n');
 }
 
-export const STORAGE_USD_GB_MONTH = 0.0952; // gp3, eu-central-2 (approx)
+// On Infomaniak the root disk is bundled into the flavor price; this small
+// per-GB figure keeps the estimate roughly proportional to disk size.
+export const STORAGE_USD_GB_MONTH = 0.02;
 const HOURS_PER_MONTH = 730;
 
 export const isValidPerf = (id: string) => Object.prototype.hasOwnProperty.call(PERF, id);

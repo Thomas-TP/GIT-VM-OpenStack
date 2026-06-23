@@ -8,11 +8,14 @@ export interface Env {
   ENTRA_TENANT_ID: string;
   ENTRA_CLIENT_ID: string;
 
-  AWS_REGION: string;
-  AWS_AMI_ID: string;
-  AWS_SUBNET_ID: string;
-  AWS_SECURITY_GROUP_ID: string;
-  AWS_KEY_NAME: string;
+  // OpenStack (Infomaniak Public Cloud) — public config
+  OS_AUTH_URL: string; // Keystone v3 base, e.g. https://api.pub1.infomaniak.cloud/identity/v3
+  OS_REGION: string; // e.g. dc3-a
+  OS_PROJECT_ID: string;
+  OS_USER_DOMAIN_NAME: string; // e.g. Default
+  OS_USERNAME: string; // e.g. PCU-XXXXXXX
+  OS_NETWORK_ID: string; // shared public network to attach VMs to (ext-net1)
+  OS_SECURITY_GROUP_NAME?: string; // SG applied to VMs (ingress 22/3389), e.g. git-vm-portal
 
   APP_URL: string;
   GRAFANA_URL?: string; // optional: link shown in the admin Monitoring tab
@@ -29,8 +32,7 @@ export interface Env {
   // Secrets (wrangler secret put ...)
   ENTRA_CLIENT_SECRET: string;
   SESSION_SECRET: string;
-  AWS_ACCESS_KEY_ID: string;
-  AWS_SECRET_ACCESS_KEY: string;
+  OS_PASSWORD: string; // OpenStack password for OS_USERNAME
   EMAILJS_PRIVATE_KEY: string;
   GRAFANA_TOKEN?: string; // bearer token for the /api/monitoring/* endpoints (Grafana)
 }

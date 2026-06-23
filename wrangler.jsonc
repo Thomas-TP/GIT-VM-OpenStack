@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "git-vm-portal",
+  "name": "git-vm-portal-openstack",
   "main": "src/index.ts",
   "compatibility_date": "2025-06-01",
   "observability": { "enabled": true },
@@ -18,30 +18,33 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "git_vm_portal",
-      "database_id": "86b47d2d-62e8-4162-a3cc-f7a8a02068c6"
+      "database_name": "git_vm_portal_openstack",
+      "database_id": "9d1c668e-ce22-430c-8a83-d2985fec9dd6"
     }
   ],
 
-  // Non-secret config. Secrets (AWS keys, Entra client secret, session secret)
-  // are set with `wrangler secret put` — never committed here.
+  // Non-secret config. Secrets (OS_PASSWORD, Entra client secret, session secret,
+  // EmailJS private key) are set with `wrangler secret put` — never committed here.
   "vars": {
     "ALLOWED_EMAIL_DOMAINS": "satom.ch,git.swiss",
     "ADMIN_EMAILS": "thomas.prudhomme@satom.ch,thomas.prudhomme@git.swiss",
     "ENTRA_TENANT_ID": "33a7a298-4cf4-4f62-914a-d32bba54de5a",
-    "ENTRA_CLIENT_ID": "0bfcdbd6-a60e-49df-a5b1-80ce3bcb7126",
+    "ENTRA_CLIENT_ID": "07545850-4f25-4530-ac9c-bdb2affc1c3e",
 
-    "AWS_REGION": "eu-central-2",
-    "AWS_AMI_ID": "ami-0fd7f34c2a7d8427b",
-    "AWS_SUBNET_ID": "subnet-0247cdf408e6fb4d1",
-    "AWS_SECURITY_GROUP_ID": "sg-0f842f10ca3c7b2d1",
-    "AWS_KEY_NAME": "",
+    // OpenStack (Infomaniak Public Cloud, project PCP-8V8ABFJ, dc3-a)
+    "OS_AUTH_URL": "https://api.pub1.infomaniak.cloud/identity/v3",
+    "OS_REGION": "dc3-a",
+    "OS_PROJECT_ID": "9e3188971b0b453da67698c6c7d75e27",
+    "OS_USER_DOMAIN_NAME": "Default",
+    "OS_USERNAME": "PCU-8V8ABFJ",
+    "OS_NETWORK_ID": "dcf25c41-9057-4bc2-8475-a2e3c5d8c662",
+    "OS_SECURITY_GROUP_NAME": "git-vm-portal",
 
-    "APP_URL": "https://git-vm-portal.thomas-prudhomme.workers.dev",
-    "GRAFANA_URL": "https://thomastp.grafana.net/d/gitvm-portal/git-vm-portal",
+    "APP_URL": "https://git-vm-portal-openstack.thomas-prudhomme.workers.dev",
+    "GRAFANA_URL": "",
     "MAIL_ENABLED": "true",
     "SCHEDULED_STOP": "true",
-    "IDLE_STOP": "true",
+    "IDLE_STOP": "false",
     "IDLE_STOP_HOURS": "3",
     "HARDENING": "true",
     "SENTRY_DSN": "",
@@ -51,7 +54,7 @@
   },
 
   "triggers": {
-    // every 2 min: reconcile AWS state (provisioning->active, drift detection)
+    // every 2 min: reconcile OpenStack state (provisioning->active, drift detection)
     // daily 19:00 UTC: scheduled stop of running VMs (cost guardrail)
     "crons": ["*/2 * * * *", "0 19 * * *"]
   }

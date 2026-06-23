@@ -96,7 +96,7 @@ import {
   deleteSnapshot,
   registerImageFromSnapshot,
   maxCpuOverWindow,
-} from './aws';
+} from './openstack';
 import {
   notifyAdminsNewRequest,
   notifyUserApproved,
@@ -255,24 +255,23 @@ async function provisionRequest(env: Env, req: any): Promise<string> {
     }
   }
 
-  // Restore: register an AMI from the snapshot and launch from it (disk = snapshot).
-  let amiId = os.ami;
-  let sizeGb = storage.sizeGb;
+  // Restore: a snapshot is itself a bootable Glance image — boot straight from it.
+  let imageId = os.ami;
   if (isRestore) {
     const snap = await getSnapshot(env, req.restore_snapshot_id, req.user_email);
     if (!snap?.aws_snapshot_id || snap.status !== 'completed') throw new Error('snapshot not ready for restore');
-    amiId = await registerImageFromSnapshot(env, `gitvm-restore-${req.id}`, snap.aws_snapshot_id, snap.root_device ?? '/dev/sda1', snap.architecture ?? 'x86_64');
-    sizeGb = Math.max(storage.sizeGb, snap.size_gb ?? 0);
+    imageId = await registerImageFromSnapshot(env, `gitvm-restore-${req.id}`, snap.aws_snapshot_id, snap.root_device ?? '/dev/vda', snap.architecture ?? 'x86_64');
   }
 
-  const kp = await createKeyPair(env, req.id, isWindows ? 'rsa' : 'ed25519');
+  // Flavor = perf stem × storage size, e.g. a2-ram4-disk20-perf1 (see openstack.ts).
+  const flavorName = `${perf.flavorStem}-disk${storage.sizeGb}-perf1`;
+  const kp = await createKeyPair(env, req.id);
   const encKey = await encryptSecret(env.SESSION_SECRET, kp.privateKey);
   const { instanceId } = await launchInstance(env, {
     requestId: req.id,
     keyName: kp.keyName,
-    instanceType: perf.instanceType,
-    amiId,
-    sizeGb,
+    flavorName,
+    imageId,
     userData,
     nameTag: req.name ? `${req.name}.${req.user_email.split('@')[0]}` : null,
   });
@@ -360,7 +359,7 @@ app.get('/api/presets', (c) =>
     os: Object.values(OS),
     courses: Object.values(COURSES).map(({ id, label, description, tools }) => ({ id, label, description, tools })),
     storageUsdGbMonth: STORAGE_USD_GB_MONTH,
-    region: c.env.AWS_REGION,
+    region: c.env.OS_REGION,
     grafanaUrl: c.env.GRAFANA_URL ?? '',
   })
 );
@@ -402,7 +401,7 @@ app.post('/api/requests', apiAuth, async (c) => {
     return c.json({ error: 'rate_limited' }, 429, { 'Retry-After': '3600' });
   }
   const id = await createRequest(
-    c.env, user.email, purpose, perf, storage, os, c.env.AWS_REGION,
+    c.env, user.email, purpose, perf, storage, os, c.env.OS_REGION,
     start ? start.toISOString() : null, end.toISOString(), course || null
   );
   await audit(c.env, user.email, 'request.create', `req:${id}`, `${perf}/${storage}/${os}${course ? `/${course}` : ''} end:${end.toISOString()}`);
@@ -444,7 +443,7 @@ app.post('/api/requests/batch', apiAuth, async (c) => {
   const ids: number[] = [];
   for (const p of parsed) {
     const id = await createRequest(
-      c.env, user.email, p.purpose, p.perf, p.storage, p.os, c.env.AWS_REGION, p.start, p.end, p.course || null, groupId, groupName, p.restoreSnapshotId, p.name
+      c.env, user.email, p.purpose, p.perf, p.storage, p.os, c.env.OS_REGION, p.start, p.end, p.course || null, groupId, groupName, p.restoreSnapshotId, p.name
     );
     ids.push(id);
     await audit(c.env, user.email, 'request.create', `req:${id}`, `${p.perf}/${p.storage}/${p.os}${groupId ? ` grp:${groupId}` : ''}`);
@@ -952,7 +951,7 @@ app.post('/api/trainer/batch', apiTrainer, async (c) => {
     const owner = emails[i % emails.length]; // round-robin distribution
     const name = `${baseName} ${i + 1}`;
     const id = await createRequest(
-      c.env, owner, purpose, perf, storage, os, c.env.AWS_REGION,
+      c.env, owner, purpose, perf, storage, os, c.env.OS_REGION,
       start ? start.toISOString() : null, end.toISOString(), course || null, groupId, groupName, null, name
     );
     ids.push(id);
