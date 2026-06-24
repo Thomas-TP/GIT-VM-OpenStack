@@ -212,6 +212,16 @@ function windowsHardeningLines(): string[] {
     "try { New-NetFirewallRule -DisplayName 'gitvm-block-torrent-udp' -Direction Outbound -Action Block -Protocol UDP -RemotePort 6881-6889,6969,51413,1337 } catch {}",
   ];
 }
+// Enable Remote Desktop. Unlike EC2 Windows AMIs, Infomaniak Windows images do NOT
+// enable RDP by default — without this there is no listener on 3389 and the client
+// fails with "cannot connect" before ever reaching the password prompt.
+function windowsRdpEnableLines(): string[] {
+  return [
+    "try { Set-ItemProperty -Path 'HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server' -Name 'fDenyTSConnections' -Value 0 } catch {}",
+    "try { Enable-NetFirewallRule -DisplayGroup 'Remote Desktop' } catch {}",
+    "try { Set-Service -Name TermService -StartupType Automatic; Start-Service -Name TermService } catch {}",
+  ];
+}
 
 // Create the SSH key + EC2 instance for a request. Shared by approve + retry.
 // Windows VMs additionally get an Administrator password set via UserData and
@@ -229,8 +239,9 @@ async function provisionRequest(env: Env, req: any): Promise<string> {
   let encPassword: string | null = null;
   if (isWindows) {
     const password = generateWindowsPassword();
-    // EC2Launch v2 runs this on first boot; single-quoted so the password is literal.
-    const lines = [`net user Administrator '${password}'`];
+    // cloudbase-init runs this <powershell> user_data on first boot (single-quoted so
+    // the password is literal). Always enable RDP — Infomaniak images don't by default.
+    const lines = [`net user Administrator '${password}'`, ...windowsRdpEnableLines()];
     if (hardeningOn && !isRestore) lines.push(...windowsHardeningLines());
     if (!isRestore) {
       const win = buildWindowsCourseInstall(req.course);
