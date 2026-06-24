@@ -25,7 +25,7 @@ export interface StoragePreset {
   recommended?: boolean;
   hidden?: boolean;
 }
-export type OsFamily = 'ubuntu' | 'debian' | 'amazon' | 'rocky' | 'alma' | 'windows';
+export type OsFamily = 'ubuntu' | 'debian' | 'amazon' | 'rocky' | 'alma' | 'fedora' | 'centos' | 'suse' | 'windows';
 export interface OsPreset {
   id: string;
   label: string;

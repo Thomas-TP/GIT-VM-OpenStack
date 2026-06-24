@@ -525,6 +525,9 @@ const fr = {
     amazon: 'Amazon Linux',
     rocky: 'Rocky Linux',
     alma: 'AlmaLinux',
+    fedora: 'Fedora',
+    centos: 'CentOS',
+    suse: 'openSUSE',
     windows: 'Windows',
   },
 };
@@ -1053,6 +1056,9 @@ const en: typeof fr = {
     amazon: 'Amazon Linux',
     rocky: 'Rocky Linux',
     alma: 'AlmaLinux',
+    fedora: 'Fedora',
+    centos: 'CentOS',
+    suse: 'openSUSE',
     windows: 'Windows',
   },
 };

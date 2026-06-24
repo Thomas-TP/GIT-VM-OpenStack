@@ -31,7 +31,7 @@ export interface OsPreset {
   id: string;
   label: string;
   /** Distribution family — drives the icon/colour in the picker. */
-  family: 'ubuntu' | 'debian' | 'amazon' | 'rocky' | 'alma' | 'windows';
+  family: 'ubuntu' | 'debian' | 'amazon' | 'rocky' | 'alma' | 'fedora' | 'centos' | 'suse' | 'windows';
   /** Glance image UUID (Infomaniak dc3-a). Field kept named `ami` to avoid churn. */
   ami: string;
   /** Login user for SSH. For Windows this is the RDP user (Administrator). */
@@ -50,10 +50,20 @@ export interface OsPreset {
 // comes from the STORAGE choice, so the final flavor is `${stem}-disk${sizeGb}-perf1`.
 // Legacy ids (eco/std/perf/pro/max) are kept hidden and remapped so any old
 // request still resolves to a valid flavor.
+// All Infomaniak general-purpose flavor stems that have disk 20/50/80 variants
+// (verified via openstack-discover.mjs). The picker shows them all.
 export const PERF: Record<string, PerfPreset> = {
-  micro: { id: 'micro', label: 'Micro', flavorStem: 'a1-ram2', vcpu: 1, ramGb: 2, hourlyUsd: 0.012, description: 'Tests légers, scripts, apprentissage.' },
-  small: { id: 'small', label: 'Small', flavorStem: 'a2-ram4', vcpu: 2, ramGb: 4, hourlyUsd: 0.024, description: 'Dev, petits services, la plupart des cours.', recommended: true },
-  flex: { id: 'flex', label: 'Flex', flavorStem: 'a4-ram8', vcpu: 4, ramGb: 8, hourlyUsd: 0.048, description: '4 vCPU / 8 Go — confortable (Windows, conteneurs).' },
+  micro: { id: 'micro', label: 'Micro · 1 vCPU · 2 Go', flavorStem: 'a1-ram2', vcpu: 1, ramGb: 2, hourlyUsd: 0.012, description: 'Tests légers, scripts, apprentissage.' },
+  nano4: { id: 'nano4', label: '1 vCPU · 4 Go', flavorStem: 'a1-ram4', vcpu: 1, ramGb: 4, hourlyUsd: 0.018, description: 'Léger, plus de mémoire.' },
+  small: { id: 'small', label: 'Small · 2 vCPU · 4 Go', flavorStem: 'a2-ram4', vcpu: 2, ramGb: 4, hourlyUsd: 0.024, description: 'Dev, petits services, la plupart des cours.', recommended: true },
+  flex: { id: 'flex', label: 'Flex · 4 vCPU · 8 Go', flavorStem: 'a4-ram8', vcpu: 4, ramGb: 8, hourlyUsd: 0.048, description: 'Confortable (Windows, conteneurs).' },
+  big16: { id: 'big16', label: '4 vCPU · 16 Go', flavorStem: 'a4-ram16', vcpu: 4, ramGb: 16, hourlyUsd: 0.072, description: 'Mémoire confortable.' },
+  cpu8: { id: 'cpu8', label: '8 vCPU · 16 Go', flavorStem: 'a8-ram16', vcpu: 8, ramGb: 16, hourlyUsd: 0.096, description: 'Calcul / build parallèle.' },
+  cpu8ram32: { id: 'cpu8ram32', label: '8 vCPU · 32 Go', flavorStem: 'a8-ram32', vcpu: 8, ramGb: 32, hourlyUsd: 0.144, description: 'Calcul + grosse mémoire.' },
+  cpu12: { id: 'cpu12', label: '12 vCPU · 24 Go', flavorStem: 'a12-ram24', vcpu: 12, ramGb: 24, hourlyUsd: 0.168, description: 'Charge soutenue.' },
+  cpu12ram48: { id: 'cpu12ram48', label: '12 vCPU · 48 Go', flavorStem: 'a12-ram48', vcpu: 12, ramGb: 48, hourlyUsd: 0.24, description: 'Charge soutenue + mémoire.' },
+  cpu16: { id: 'cpu16', label: '16 vCPU · 32 Go', flavorStem: 'a16-ram32', vcpu: 16, ramGb: 32, hourlyUsd: 0.224, description: 'Gros calcul.' },
+  cpu16ram64: { id: 'cpu16ram64', label: '16 vCPU · 64 Go', flavorStem: 'a16-ram64', vcpu: 16, ramGb: 64, hourlyUsd: 0.32, description: 'Maximum — gros calcul + 64 Go.' },
   // Legacy (hidden) — remappés vers un stem valide pour les demandes existantes.
   eco: { id: 'eco', label: 'Eco', flavorStem: 'a1-ram2', vcpu: 1, ramGb: 2, hourlyUsd: 0.012, hidden: true },
   std: { id: 'std', label: 'Standard', flavorStem: 'a2-ram4', vcpu: 2, ramGb: 4, hourlyUsd: 0.024, hidden: true },
@@ -74,17 +84,21 @@ export const STORAGE: Record<string, StoragePreset> = {
 // via `node scripts/openstack-discover.mjs`. Refresh them if images are retired.
 // Note vs AWS: Amazon Linux & AlmaLinux aren't offered by Infomaniak — replaced
 // by additional Ubuntu/Debian/Rocky options (all with well-known cloud users).
+// One entry per distro (no duplicates) — newest version of each, with its known
+// cloud-init login user. UUIDs from openstack-discover.mjs (dc3-a).
 export const OS: Record<string, OsPreset> = {
   ubuntu2404: { id: 'ubuntu2404', label: 'Ubuntu 24.04 LTS', family: 'ubuntu', ami: '59f6d446-584e-444f-8e05-62eaacf6817d', sshUser: 'ubuntu', connect: 'ssh', description: 'La distribution Linux la plus répandue. Idéale pour débuter.', recommended: true },
-  ubuntu2204: { id: 'ubuntu2204', label: 'Ubuntu 22.04 LTS', family: 'ubuntu', ami: '98c7b1cd-920f-4989-9227-d3af73ee53d8', sshUser: 'ubuntu', connect: 'ssh', description: 'LTS éprouvée, large compatibilité.' },
-  debian12: { id: 'debian12', label: 'Debian 12 (Bookworm)', family: 'debian', ami: 'c03b8f35-78e9-40dc-9208-9625c2a98756', sshUser: 'debian', connect: 'ssh', description: 'Stable et légère, la référence des serveurs.' },
-  debian13: { id: 'debian13', label: 'Debian 13 (Trixie)', family: 'debian', ami: '2dc5c057-94c5-4b3a-977d-ef7318724c48', sshUser: 'debian', connect: 'ssh', description: 'La dernière Debian stable.' },
+  debian13: { id: 'debian13', label: 'Debian 13 (Trixie)', family: 'debian', ami: '2dc5c057-94c5-4b3a-977d-ef7318724c48', sshUser: 'debian', connect: 'ssh', description: 'Stable et légère, la référence des serveurs.' },
   rocky9: { id: 'rocky9', label: 'Rocky Linux 9', family: 'rocky', ami: 'ea418e54-cd99-4d60-a561-12f12607eb9b', sshUser: 'rocky', connect: 'ssh', description: 'Compatible RHEL, parfaite pour l’entreprise (dnf/yum).' },
+  fedora42: { id: 'fedora42', label: 'Fedora 42', family: 'fedora', ami: 'baa30a40-610e-482b-8c3d-2a2451745e2d', sshUser: 'fedora', connect: 'ssh', description: 'À la pointe (paquets récents), amont de RHEL.' },
+  centos9: { id: 'centos9', label: 'CentOS Stream 9', family: 'centos', ami: 'eefd0e20-d8d7-431a-8e44-21064462ba23', sshUser: 'cloud-user', connect: 'ssh', description: 'Amont de RHEL (dnf). Connexion SSH : cloud-user.' },
+  opensuse: { id: 'opensuse', label: 'openSUSE Leap 16', family: 'suse', ami: '175a10b7-f468-41ed-835c-a2bc2d451418', sshUser: 'opensuse', connect: 'ssh', description: 'Distribution SUSE (zypper). Connexion SSH : opensuse.' },
   windows2022: { id: 'windows2022', label: 'Windows Server 2022', family: 'windows', ami: 'd9b42bf9-34a9-44ca-81d7-b5ce52239a96', sshUser: 'Administrator', connect: 'rdp', minStorageGb: 60, description: 'Édition serveur : rôles, services, Active Directory, IIS. Accès RDP.' },
   // « Poste de travail » : Windows Server 2025 avec expérience Bureau (GUI complet via RDP).
   windowsDesktop: { id: 'windowsDesktop', label: 'Windows · Poste de travail', family: 'windows', ami: 'a3dd20e2-52e6-4f0c-915a-0c448909f5ef', sshUser: 'Administrator', connect: 'rdp', minStorageGb: 60, description: 'Bureau Windows complet (Windows Server 2025, expérience Bureau). Accès RDP.' },
-  // Hidden legacy ids (no longer offered by Infomaniak) — remapped to Rocky 9 so
-  // any pre-existing request still resolves to a bootable image.
+  // Hidden legacy / dédupliqués — conservés masqués pour résoudre d'anciennes demandes.
+  ubuntu2204: { id: 'ubuntu2204', label: 'Ubuntu 22.04 LTS', family: 'ubuntu', ami: '98c7b1cd-920f-4989-9227-d3af73ee53d8', sshUser: 'ubuntu', connect: 'ssh', hidden: true },
+  debian12: { id: 'debian12', label: 'Debian 12 (Bookworm)', family: 'debian', ami: 'c03b8f35-78e9-40dc-9208-9625c2a98756', sshUser: 'debian', connect: 'ssh', hidden: true },
   al2023: { id: 'al2023', label: 'Amazon Linux 2023', family: 'amazon', ami: 'ea418e54-cd99-4d60-a561-12f12607eb9b', sshUser: 'rocky', connect: 'ssh', hidden: true },
   alma9: { id: 'alma9', label: 'AlmaLinux 9', family: 'alma', ami: 'ea418e54-cd99-4d60-a561-12f12607eb9b', sshUser: 'rocky', connect: 'ssh', hidden: true },
 };

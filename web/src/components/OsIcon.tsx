@@ -8,6 +8,9 @@ const FAM: Record<OsFamily, { bg: string; glyph: 'terminal' | 'windows' }> = {
   amazon: { bg: '#EC7211', glyph: 'terminal' },
   rocky: { bg: '#10B981', glyph: 'terminal' },
   alma: { bg: '#1F557F', glyph: 'terminal' },
+  fedora: { bg: '#51A2DA', glyph: 'terminal' },
+  centos: { bg: '#262577', glyph: 'terminal' },
+  suse: { bg: '#30BA78', glyph: 'terminal' },
   windows: { bg: '#0078D4', glyph: 'windows' },
 };
 
