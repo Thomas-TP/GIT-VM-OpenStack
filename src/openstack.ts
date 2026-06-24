@@ -179,6 +179,11 @@ export async function launchInstance(env: Env, p: LaunchParams): Promise<LaunchR
     flavorRef,
     key_name: p.keyName,
     networks: [{ uuid: env.OS_NETWORK_ID }],
+    // On Infomaniak's shared ext-net1 the metadata service (169.254.169.254) is not
+    // routable, so cloud-init (SSH key) / cloudbase-init (Windows password) can't fetch
+    // it over the network. config_drive attaches it as a local virtual CD instead —
+    // without this the injected SSH key and Windows admin password never apply.
+    config_drive: true,
     metadata: { 'managed-by': 'git-vm-portal', 'request-id': String(p.requestId) },
   };
   // Security group by name (Nova boot wants the name, not the id).
