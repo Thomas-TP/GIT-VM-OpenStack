@@ -33,6 +33,7 @@ import {
   countByOs,
   countByUser,
   listActiveForCost,
+  listVmsForCost,
   setRequestStatus,
   createVm,
   updateVm,
@@ -924,6 +925,115 @@ app.get('/api/admin/stats', apiAdmin, async (c) => {
 
 app.get('/api/admin/metrics', apiAdmin, async (c) => {
   return c.json({ metrics: await metrics(c.env) });
+});
+
+// Real cost & usage report. Cost = billed duration (instance creation → termination
+// / expiry / now) × (flavor hourly + storage hourly). On Infomaniak a provisioned
+// VM is billed while it exists (compute + Cinder volume), so duration-based cost is
+// the realistic figure. Currency ≈ CHF (rates in presets).
+app.get('/api/admin/cost', apiAdmin, async (c) => {
+  const rows = await listVmsForCost(c.env);
+  const now = Date.now();
+  const HOURLY_STORAGE_PER_GB = STORAGE_USD_GB_MONTH / 730;
+  const round = (n: number) => Math.round(n * 100) / 100;
+  // D1 datetime('now') = "YYYY-MM-DD HH:MM:SS" (UTC, no tz) → make it parseable.
+  const ms = (s: string | null): number => {
+    if (!s) return NaN;
+    return Date.parse(s.includes('T') ? s : s.replace(' ', 'T') + 'Z');
+  };
+  const monthStart = new Date(now);
+  monthStart.setUTCDate(1);
+  monthStart.setUTCHours(0, 0, 0, 0);
+  const monthStartMs = monthStart.getTime();
+  const dayMs = 86_400_000;
+
+  const perVm = rows.map((r) => {
+    const perf = PERF[r.preset];
+    const storage = STORAGE[r.storage ?? ''];
+    const startMs = ms(r.vm_created_at) || ms(r.created_at);
+    const endMs = r.expired_at ? ms(r.expired_at) : r.terminated_at ? ms(r.terminated_at) : now;
+    const hours = Math.max(0, (endMs - startMs) / 3_600_000);
+    const hourly = (perf?.hourlyUsd ?? 0) + (storage?.sizeGb ?? 0) * HOURLY_STORAGE_PER_GB;
+    const computeCost = hours * (perf?.hourlyUsd ?? 0);
+    const storageCost = hours * (storage?.sizeGb ?? 0) * HOURLY_STORAGE_PER_GB;
+    const ended = !!r.expired_at || r.status === 'terminated';
+    // cost incurred within the current calendar month
+    const mc = Math.max(0, (Math.min(endMs, now) - Math.max(startMs, monthStartMs)) / 3_600_000) * hourly;
+    return {
+      id: r.id,
+      name: r.name,
+      user_email: r.user_email,
+      os: r.os,
+      preset: r.preset,
+      storage: r.storage,
+      status: r.expired_at ? 'expired' : r.status,
+      startMs,
+      endMs,
+      ended,
+      hours: round(hours),
+      hourly,
+      computeCost,
+      storageCost,
+      cost: computeCost + storageCost,
+      monthCost: mc,
+    };
+  });
+
+  const sum = (f: (v: (typeof perVm)[number]) => number) => perVm.reduce((s, v) => s + f(v), 0);
+  const groupBy = (key: (v: (typeof perVm)[number]) => string) => {
+    const m: Record<string, { key: string; cost: number; vms: number }> = {};
+    for (const v of perVm) {
+      const k = key(v) || '?';
+      (m[k] ??= { key: k, cost: 0, vms: 0 });
+      m[k].cost += v.cost;
+      m[k].vms += 1;
+    }
+    return Object.values(m).map((g) => ({ ...g, cost: round(g.cost) })).sort((a, b) => b.cost - a.cost);
+  };
+
+  // 30-day daily cost (overlap of each VM's billed window with each day).
+  const daily: { day: string; cost: number }[] = [];
+  for (let i = 29; i >= 0; i--) {
+    const dayStart = now - i * dayMs - ((now - i * dayMs) % dayMs);
+    const dayEnd = dayStart + dayMs;
+    let cost = 0;
+    for (const v of perVm) {
+      const overlap = Math.max(0, (Math.min(v.endMs, dayEnd) - Math.max(v.startMs, dayStart)) / 3_600_000);
+      cost += overlap * v.hourly;
+    }
+    daily.push({ day: new Date(dayStart).toISOString().slice(0, 10), cost: round(cost) });
+  }
+
+  const activeVms = perVm.filter((v) => !v.ended);
+  return c.json({
+    summary: {
+      totalCost: round(sum((v) => v.cost)),
+      computeCost: round(sum((v) => v.computeCost)),
+      storageCost: round(sum((v) => v.storageCost)),
+      currentMonthCost: round(sum((v) => v.monthCost)),
+      projectedMonthly: round(activeVms.reduce((s, v) => s + v.hourly * 730, 0)),
+      activeVms: activeVms.length,
+      totalVms: perVm.length,
+      totalHours: Math.round(sum((v) => v.hours)),
+    },
+    byUser: groupBy((v) => v.user_email),
+    byOs: groupBy((v) => v.os ?? '?'),
+    byPerf: groupBy((v) => v.preset),
+    daily,
+    perVm: perVm
+      .map((v) => ({
+        id: v.id,
+        name: v.name,
+        user_email: v.user_email,
+        os: v.os,
+        preset: v.preset,
+        storage: v.storage,
+        status: v.status,
+        hours: v.hours,
+        cost: round(v.cost),
+      }))
+      .sort((a, b) => b.cost - a.cost),
+  });
 });
 
 app.get('/api/admin/users', apiAdmin, async (c) => {

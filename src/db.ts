@@ -503,11 +503,41 @@ export async function getKeyForRequest(
 }
 
 export async function updateVm(env: Env, requestId: number, state: string, publicIp?: string) {
+  // Record the termination time once (used by the cost report to bound the billed
+  // duration). Stays NULL while the VM is alive.
   await env.DB.prepare(
-    `UPDATE vms SET state = ?2, public_ip = COALESCE(?3, public_ip) WHERE request_id = ?1`
+    `UPDATE vms SET state = ?2, public_ip = COALESCE(?3, public_ip),
+            terminated_at = CASE WHEN ?2 = 'terminated' AND terminated_at IS NULL THEN datetime('now') ELSE terminated_at END
+       WHERE request_id = ?1`
   )
     .bind(requestId, state, publicIp ?? null)
     .run();
+}
+
+// Rows for the admin cost report: every request that has (or had) an instance,
+// with the timestamps needed to compute billed duration.
+export interface CostVmRow {
+  id: number;
+  name: string | null;
+  user_email: string;
+  os: string | null;
+  preset: string;
+  storage: string | null;
+  status: string;
+  expired_at: string | null;
+  created_at: string;
+  vm_created_at: string | null;
+  terminated_at: string | null;
+  state: string | null;
+}
+export async function listVmsForCost(env: Env): Promise<CostVmRow[]> {
+  const res = await env.DB.prepare(
+    `SELECT r.id, r.name, r.user_email, r.os, r.preset, r.storage, r.status, r.expired_at,
+            r.created_at, v.created_at AS vm_created_at, v.terminated_at, v.state
+       FROM vm_requests r JOIN vms v ON v.request_id = r.id
+      ORDER BY r.created_at DESC`
+  ).all<CostVmRow>();
+  return res.results ?? [];
 }
 
 export async function getVmByRequest(env: Env, requestId: number) {

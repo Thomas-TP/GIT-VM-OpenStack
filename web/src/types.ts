@@ -92,6 +92,38 @@ export interface AuditEntry {
   detail: string | null;
   created_at: string;
 }
+export interface CostBucket {
+  key: string;
+  cost: number;
+  vms: number;
+}
+export interface CostReport {
+  summary: {
+    totalCost: number;
+    computeCost: number;
+    storageCost: number;
+    currentMonthCost: number;
+    projectedMonthly: number;
+    activeVms: number;
+    totalVms: number;
+    totalHours: number;
+  };
+  byUser: CostBucket[];
+  byOs: CostBucket[];
+  byPerf: CostBucket[];
+  daily: { day: string; cost: number }[];
+  perVm: {
+    id: number;
+    name: string | null;
+    user_email: string;
+    os: string | null;
+    preset: string;
+    storage: string | null;
+    status: string;
+    hours: number;
+    cost: number;
+  }[];
+}
 export interface Notification {
   id: number;
   type: string;

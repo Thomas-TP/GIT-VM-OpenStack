@@ -8,8 +8,9 @@ import { Card } from '../ui';
 import { fmtDate } from '../lib/format';
 import { UsersPanel } from '../components/UsersPanel';
 import { VmConsole } from '../components/VmConsole';
+import { CostDashboard } from '../components/CostDashboard';
 
-type Tab = 'overview' | 'vms' | 'users' | 'monitoring';
+type Tab = 'overview' | 'vms' | 'users' | 'cost' | 'monitoring';
 
 /* ---------- shared bits ---------- */
 function StatCard({ label, value, dot }: { label: string; value: number; dot: string }) {
@@ -50,6 +51,7 @@ const ICONS: Record<Tab, string> = {
   overview: 'M4 13h6V4H4zM14 20h6v-9h-6zM14 4v4h6V4zM4 20h6v-4H4z',
   vms: 'M5 4h14a2 2 0 0 1 2 2v3H3V6a2 2 0 0 1 2-2zM3 15h18v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM7 7h.01M7 18h.01',
   users: 'M16 21v-2a4 4 0 0 0-8 0v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
+  cost: 'M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6',
   monitoring: 'M22 12h-4l-3 9L9 3l-3 9H2',
 };
 
@@ -75,6 +77,7 @@ export function Admin() {
     { id: 'overview', label: t('admin.navOverview') },
     { id: 'vms', label: t('admin.navVms'), badge: pending },
     { id: 'users', label: t('admin.navUsers') },
+    { id: 'cost', label: t('admin.navCost') },
     { id: 'monitoring', label: t('admin.navMonitoring') },
   ];
 
@@ -113,6 +116,7 @@ export function Admin() {
           {tab === 'overview' && <OverviewSection stats={stats} metrics={metricsQ.data} />}
           {tab === 'vms' && <VmConsole rows={rows} loading={allQ.isLoading} catalog={catalog} />}
           {tab === 'users' && <UsersSection rows={rows} />}
+          {tab === 'cost' && <CostDashboard />}
           {tab === 'monitoring' && <MonitoringSection grafanaUrl={catalog?.grafanaUrl} />}
         </div>
       </div>
