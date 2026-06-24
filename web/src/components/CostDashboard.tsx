@@ -95,6 +95,16 @@ export function CostDashboard() {
     };
   }, [cat]);
 
+  const typeLabel = (ty: string) => {
+    if (ty === 'instance_up') return t('cost.tInstanceUp');
+    if (ty === 'instance_reserved') return t('cost.tInstanceReserved');
+    if (ty === 'software_licence') return t('cost.tLicence');
+    if (ty.startsWith('network')) return t('cost.tNetwork');
+    if (ty.startsWith('volume')) return t('cost.tVolume');
+    if (ty.startsWith('storage')) return t('cost.tStorage');
+    return ty;
+  };
+
   if (costQ.isLoading) return <div className="grid place-items-center py-16"><Spinner className="h-6 w-6" /></div>;
   const r = costQ.data;
   if (!r) return <p className="py-10 text-center text-sm text-muted-foreground">{t('common.error')}</p>;
@@ -105,6 +115,31 @@ export function CostDashboard() {
       <div>
         <h2 className="text-lg font-semibold tracking-tight">{t('cost.title')}</h2>
         <p className="text-sm text-muted-foreground">{t('cost.hint')}</p>
+      </div>
+
+      {/* Real billed cost (CloudKitty) */}
+      {r.real.available ? (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <StatTile label={t('cost.realMonth')} value={chf(r.real.monthTotal ?? 0)} accent />
+            <StatTile label={t('cost.realAllTime')} value={chf(r.real.allTimeTotal ?? 0)} />
+            <StatTile label={t('cost.realSource')} value="CloudKitty ✓" />
+          </div>
+          <Bars
+            title={t('cost.realByType')}
+            rows={(r.real.byType ?? []).map((x) => ({ key: x.type, cost: x.rate, vms: 0 }))}
+            render={(k) => <span className="truncate">{typeLabel(k)}</span>}
+          />
+        </div>
+      ) : (
+        <Card className="p-4">
+          <p className="text-sm text-muted-foreground">{t('cost.realNa')}</p>
+        </Card>
+      )}
+
+      <div className="border-t border-border pt-4">
+        <h3 className="text-sm font-semibold tracking-tight">{t('cost.estTitle')}</h3>
+        <p className="text-xs text-muted-foreground">{t('cost.estHint')}</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">

@@ -376,6 +376,28 @@ export async function maxCpuOverWindow(
   return null;
 }
 
+// ---- Rating / real cost (CloudKitty) -----------------------------------
+// Infomaniak's CloudKitty v2 `summary` groups by `type` (instance_up,
+// instance_reserved, software_licence, network.ports.*, storage.*) and returns
+// the real billed rate (CHF) for the project. Per-resource/user grouping returns
+// 500 on this cloud, so only the by-type total is available.
+export interface RatingRow {
+  type: string;
+  rate: number;
+  qty: number;
+}
+export async function ratingSummaryByType(env: Env, begin: string, end: string): Promise<RatingRow[]> {
+  const qs = new URLSearchParams({ groupby: 'type', begin, end }).toString();
+  const out = await osJson<{ columns: string[]; results: unknown[][] }>(env, 'rating', `/v2/summary?${qs}`);
+  const cols = out.columns ?? [];
+  const ti = cols.indexOf('type'), ri = cols.indexOf('rate'), qi = cols.indexOf('qty');
+  return (out.results ?? []).map((row) => ({
+    type: String(row[ti] ?? '?'),
+    rate: Number(row[ri]) || 0,
+    qty: Number(row[qi]) || 0,
+  }));
+}
+
 // List portal-managed servers -> { serverId: state } (for reconciliation/drift).
 export async function listManagedInstances(env: Env): Promise<Record<string, string>> {
   const out = await osJson<{ servers: any[] }>(env, 'compute', '/servers/detail');

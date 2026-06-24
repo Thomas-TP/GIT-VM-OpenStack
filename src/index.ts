@@ -97,6 +97,7 @@ import {
   deleteSnapshot,
   registerImageFromSnapshot,
   maxCpuOverWindow,
+  ratingSummaryByType,
 } from './openstack';
 import {
   notifyAdminsNewRequest,
@@ -1005,7 +1006,35 @@ app.get('/api/admin/cost', apiAdmin, async (c) => {
   }
 
   const activeVms = perVm.filter((v) => !v.ended);
+
+  // Real billed cost from CloudKitty (CHF), best-effort. Per-VM/per-user grouping
+  // isn't exposed by Infomaniak's CloudKitty, so we surface the total + by-type.
+  let real: {
+    available: boolean;
+    currency: string;
+    monthTotal?: number;
+    allTimeTotal?: number;
+    byType?: { type: string; rate: number }[];
+  } = { available: false, currency: 'CHF' };
+  try {
+    const nowD = new Date();
+    const mStart = new Date(Date.UTC(nowD.getUTCFullYear(), nowD.getUTCMonth(), 1)).toISOString().slice(0, 19);
+    const nowIso = nowD.toISOString().slice(0, 19);
+    const month = await ratingSummaryByType(c.env, mStart, nowIso);
+    const all = await ratingSummaryByType(c.env, '2024-01-01T00:00:00', nowIso);
+    real = {
+      available: true,
+      currency: 'CHF',
+      monthTotal: round(month.reduce((s, r) => s + r.rate, 0)),
+      allTimeTotal: round(all.reduce((s, r) => s + r.rate, 0)),
+      byType: month.map((r) => ({ type: r.type, rate: round(r.rate) })).filter((r) => r.rate > 0).sort((a, b) => b.rate - a.rate),
+    };
+  } catch (e: any) {
+    await audit(c.env, 'system', 'cost.cloudkitty.error', undefined, e.message);
+  }
+
   return c.json({
+    real,
     summary: {
       totalCost: round(sum((v) => v.cost)),
       computeCost: round(sum((v) => v.computeCost)),

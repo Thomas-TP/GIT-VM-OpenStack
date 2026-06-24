@@ -98,6 +98,13 @@ export interface CostBucket {
   vms: number;
 }
 export interface CostReport {
+  real: {
+    available: boolean;
+    currency: string;
+    monthTotal?: number;
+    allTimeTotal?: number;
+    byType?: { type: string; rate: number }[];
+  };
   summary: {
     totalCost: number;
     computeCost: number;
