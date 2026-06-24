@@ -160,10 +160,12 @@ export interface LaunchResult {
 export interface LaunchParams {
   requestId: number;
   keyName: string;
-  /** Flavor NAME (composed perf×storage), resolved to an id here. */
+  /** Diskless flavor NAME (e.g. a2-ram4-disk0), resolved to an id here. */
   flavorName: string;
   /** Glance image UUID (OS image, or a snapshot image for restore). */
   imageId: string;
+  /** Root volume size in GB (boot-from-volume). */
+  sizeGb: number;
   /** cloud-init (Linux) / cloudbase-init (Windows) user-data, raw text. */
   userData?: string;
   /** User-chosen VM name (falls back to vm-portal-req-<id>). */
@@ -175,8 +177,20 @@ export async function launchInstance(env: Env, p: LaunchParams): Promise<LaunchR
   const flavorRef = await flavorId(env, p.flavorName);
   const server: Record<string, unknown> = {
     name: (p.nameTag && p.nameTag.trim() ? p.nameTag.trim() : `vm-portal-req-${p.requestId}`).slice(0, 255),
-    imageRef: p.imageId,
+    // Boot from a Cinder volume created from the image (no imageRef): the root disk
+    // size is arbitrary, not limited to the flavor's baked disk. delete_on_termination
+    // removes the volume when the server is deleted (so terminate/expiry leave no orphan).
     flavorRef,
+    block_device_mapping_v2: [
+      {
+        boot_index: 0,
+        uuid: p.imageId,
+        source_type: 'image',
+        destination_type: 'volume',
+        volume_size: p.sizeGb,
+        delete_on_termination: true,
+      },
+    ],
     key_name: p.keyName,
     networks: [{ uuid: env.OS_NETWORK_ID }],
     // On Infomaniak's shared ext-net1 the metadata service (169.254.169.254) is not

@@ -1,9 +1,9 @@
 // A VM request is composed of three independent choices:
 //   performance (flavor) × storage (root disk) × OS (image).
-// On Infomaniak the flavor name encodes BOTH cpu/ram AND the root disk size:
-//   "<stem>-disk<sizeGb>-perf1"  e.g.  a2-ram4-disk20-perf1
-// So the effective flavor = `${perf.flavorStem}-disk${storage.sizeGb}-perf1`,
-// resolved to a flavor UUID at launch time (see openstack.ts).
+// Performance (flavor cpu/ram) and storage (root disk size) are independent: VMs
+// boot from a Cinder volume created from the image (boot-from-volume), so the disk
+// can be ANY size. The flavor used is the diskless variant `${stem}-disk0` and the
+// root volume is sized to storage.sizeGb at launch time (see openstack.ts).
 // Prices are approximate hourly rates for Infomaniak Public Cloud (dc3-a), CHF≈USD.
 
 export interface PerfPreset {
@@ -72,12 +72,15 @@ export const PERF: Record<string, PerfPreset> = {
   max: { id: 'max', label: 'Max', flavorStem: 'a8-ram16', vcpu: 8, ramGb: 16, hourlyUsd: 0.096, hidden: true },
 };
 
-// Storage = root disk size. Sizes MUST match an existing flavor disk variant
-// (Infomaniak offers disk 20 / 50 / 80). Windows images require ≥ 60 Go → s80.
+// Storage = root Cinder volume size (boot-from-volume), so any size is allowed
+// (quota: 50 TB / 500 volumes). Windows images need ≥ 60 Go → gated to ≥ 80 Go.
 export const STORAGE: Record<string, StoragePreset> = {
   s20: { id: 's20', label: '20 Go SSD', sizeGb: 20, description: 'Suffisant pour un OS Linux + outils.', recommended: true },
-  s50: { id: 's50', label: '50 Go SSD', sizeGb: 50, description: 'Confortable, requis pour Windows / gros projets.' },
-  s80: { id: 's80', label: '80 Go SSD', sizeGb: 80, description: 'Maximum — Windows avec applications.' },
+  s50: { id: 's50', label: '50 Go SSD', sizeGb: 50, description: 'Confortable pour la plupart des projets.' },
+  s80: { id: 's80', label: '80 Go SSD', sizeGb: 80, description: 'Windows, ou Linux avec de gros outils.' },
+  s160: { id: 's160', label: '160 Go SSD', sizeGb: 160, description: 'Gros volumes de données.' },
+  s320: { id: 's320', label: '320 Go SSD', sizeGb: 320, description: 'Très gros stockage.' },
+  s500: { id: 's500', label: '500 Go SSD', sizeGb: 500, description: 'Maximum proposé.' },
 };
 
 // All `ami` values are concrete Infomaniak Glance image UUIDs (dc3-a), discovered
@@ -92,7 +95,9 @@ export const OS: Record<string, OsPreset> = {
   rocky9: { id: 'rocky9', label: 'Rocky Linux 9', family: 'rocky', ami: 'ea418e54-cd99-4d60-a561-12f12607eb9b', sshUser: 'rocky', connect: 'ssh', description: 'Compatible RHEL, parfaite pour l’entreprise (dnf/yum).' },
   fedora42: { id: 'fedora42', label: 'Fedora 42', family: 'fedora', ami: 'baa30a40-610e-482b-8c3d-2a2451745e2d', sshUser: 'fedora', connect: 'ssh', description: 'À la pointe (paquets récents), amont de RHEL.' },
   centos9: { id: 'centos9', label: 'CentOS Stream 9', family: 'centos', ami: 'eefd0e20-d8d7-431a-8e44-21064462ba23', sshUser: 'cloud-user', connect: 'ssh', description: 'Amont de RHEL (dnf). Connexion SSH : cloud-user.' },
-  opensuse: { id: 'opensuse', label: 'openSUSE Leap 16', family: 'suse', ami: '175a10b7-f468-41ed-835c-a2bc2d451418', sshUser: 'opensuse', connect: 'ssh', description: 'Distribution SUSE (zypper). Connexion SSH : opensuse.' },
+  // openSUSE Leap 16 image doesn't reliably accept the injected key under a known
+  // SSH user (login fell back to password) — hidden until its login user is verified.
+  opensuse: { id: 'opensuse', label: 'openSUSE Leap 16', family: 'suse', ami: '175a10b7-f468-41ed-835c-a2bc2d451418', sshUser: 'opensuse', connect: 'ssh', hidden: true },
   windows2022: { id: 'windows2022', label: 'Windows Server 2022', family: 'windows', ami: 'd9b42bf9-34a9-44ca-81d7-b5ce52239a96', sshUser: 'Administrator', connect: 'rdp', minStorageGb: 60, description: 'Édition serveur : rôles, services, Active Directory, IIS. Accès RDP.' },
   // « Poste de travail » : Windows Server 2025 avec expérience Bureau (GUI complet via RDP).
   windowsDesktop: { id: 'windowsDesktop', label: 'Windows · Poste de travail', family: 'windows', ami: 'a3dd20e2-52e6-4f0c-915a-0c448909f5ef', sshUser: 'Administrator', connect: 'rdp', minStorageGb: 60, description: 'Bureau Windows complet (Windows Server 2025, expérience Bureau). Accès RDP.' },

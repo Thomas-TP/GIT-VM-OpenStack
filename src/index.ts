@@ -268,14 +268,16 @@ async function provisionRequest(env: Env, req: any): Promise<string> {
 
   // Restore: a snapshot is itself a bootable Glance image — boot straight from it.
   let imageId = os.ami;
+  let sizeGb = storage.sizeGb;
   if (isRestore) {
     const snap = await getSnapshot(env, req.restore_snapshot_id, req.user_email);
     if (!snap?.aws_snapshot_id || snap.status !== 'completed') throw new Error('snapshot not ready for restore');
     imageId = await registerImageFromSnapshot(env, `gitvm-restore-${req.id}`, snap.aws_snapshot_id, snap.root_device ?? '/dev/vda', snap.architecture ?? 'x86_64');
+    sizeGb = Math.max(storage.sizeGb, snap.size_gb ?? 0); // root volume must fit the snapshot
   }
 
-  // Flavor = perf stem × storage size, e.g. a2-ram4-disk20-perf1 (see openstack.ts).
-  const flavorName = `${perf.flavorStem}-disk${storage.sizeGb}-perf1`;
+  // Diskless flavor + a root Cinder volume sized to the storage choice (boot-from-volume).
+  const flavorName = `${perf.flavorStem}-disk0`;
   const kp = await createKeyPair(env, req.id);
   const encKey = await encryptSecret(env.SESSION_SECRET, kp.privateKey);
   const { instanceId } = await launchInstance(env, {
@@ -283,6 +285,7 @@ async function provisionRequest(env: Env, req: any): Promise<string> {
     keyName: kp.keyName,
     flavorName,
     imageId,
+    sizeGb,
     userData,
     nameTag: req.name ? `${req.name}.${req.user_email.split('@')[0]}` : null,
   });
