@@ -805,7 +805,24 @@ app.get('/api/requests/:id/snapshots', apiAuth, async (c) => {
   const id = Number(c.req.param('id'));
   const ctx = await authorizeVm(c, id);
   if (!ctx) return c.json({ error: 'not_found' }, 404);
-  return c.json({ snapshots: await listSnapshotsForRequest(c.env, id) });
+  let rows = await listSnapshotsForRequest(c.env, id);
+  // Live-refresh pending snapshots from Glance so the UI reflects completion within
+  // its poll interval, instead of waiting up to 2 min for the syncSnapshots cron.
+  if (rows.some((s) => s.status === 'pending' && s.aws_snapshot_id)) {
+    for (const s of rows) {
+      if (s.status !== 'pending' || !s.aws_snapshot_id) continue;
+      try {
+        const st = await describeSnapshot(c.env, s.aws_snapshot_id);
+        if (st.state === 'completed' || st.state === 'error') {
+          await updateSnapshotStatus(c.env, s.aws_snapshot_id, st.state, st.sizeGb);
+        }
+      } catch {
+        /* Glance unreachable this request — leave as pending */
+      }
+    }
+    rows = await listSnapshotsForRequest(c.env, id);
+  }
+  return c.json({ snapshots: rows });
 });
 
 app.get('/api/snapshots', apiAuth, async (c) => {
