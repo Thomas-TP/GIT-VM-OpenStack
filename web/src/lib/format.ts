@@ -1,11 +1,15 @@
 import i18n from '../i18n';
 
-// SQLite datetime('now') returns UTC "YYYY-MM-DD HH:MM:SS"
+// Dates come in two shapes: SQLite datetime('now') = "YYYY-MM-DD HH:MM:SS" (UTC, no
+// timezone), and full ISO with a Z/offset (start_date/end_date via toISOString()).
+// Only add Z to the bare SQLite form; always render in Europe/Zurich.
 export function fmtDate(iso?: string | null): string {
   if (!iso) return '—';
-  const d = new Date(iso.replace(' ', 'T') + 'Z');
+  const s = iso.trim();
+  const hasTz = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(s);
+  const d = new Date(hasTz ? s : s.replace(' ', 'T') + 'Z');
   if (isNaN(d.getTime())) return iso;
-  return d.toLocaleString(i18n.language, { dateStyle: 'medium', timeStyle: 'short' });
+  return d.toLocaleString(i18n.language, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/Zurich' });
 }
 
 // Compact uptime from an ISO launch time (e.g. "2d 4h", "5h 12m", "8m").

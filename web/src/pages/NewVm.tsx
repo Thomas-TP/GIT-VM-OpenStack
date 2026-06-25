@@ -88,6 +88,14 @@ function VmConfig({ vm, onChange, catalog, snapshots }: { vm: VmCfg; onChange: (
     return !!end && !isNaN(end.getTime()) && end.getTime() > Date.now() && (!start || (!isNaN(start.getTime()) && start.getTime() < end.getTime()));
   })();
   const startDate = vm.start ? new Date(vm.start) : null;
+  // Course tools are multi-select: vm.course is a comma-separated list of course ids.
+  const selectedCourses = vm.course ? vm.course.split(',').filter(Boolean) : [];
+  const toggleCourse = (id: string) => {
+    const set = new Set(selectedCourses);
+    if (set.has(id)) set.delete(id);
+    else set.add(id);
+    onChange({ course: [...set].join(',') });
+  };
 
   return (
     <div className="space-y-8">
@@ -122,7 +130,6 @@ function VmConfig({ vm, onChange, catalog, snapshots }: { vm: VmCfg; onChange: (
                 <span className="font-medium">{p.label}</span>
                 {p.recommended && <Badge tone="primary">{t('newvm.recommended')}</Badge>}
               </div>
-              <div className="mt-1 font-mono text-[11px] text-muted-foreground">{p.instanceType}</div>
               <div className="mt-1.5 text-sm">{p.vcpu} vCPU · {p.ramGb} {t('newvm.ram')}</div>
               <div className="mt-1 text-xs text-muted-foreground tabular-nums">${p.hourlyUsd.toFixed(3)}/h</div>
             </Choice>
@@ -181,12 +188,12 @@ function VmConfig({ vm, onChange, catalog, snapshots }: { vm: VmCfg; onChange: (
 
       <Section n={4} title={t('newvm.course')} hint={t('newvm.courseHint')}>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Choice selected={vm.course === ''} onClick={() => onChange({ course: '' })}>
+          <Choice selected={selectedCourses.length === 0} onClick={() => onChange({ course: '' })}>
             <div className="font-medium">{t('newvm.courseNone')}</div>
             <div className="mt-0.5 text-xs text-muted-foreground">{t('newvm.courseNoneHint')}</div>
           </Choice>
           {catalog.courses.map((c) => (
-            <Choice key={c.id} selected={vm.course === c.id} onClick={() => onChange({ course: c.id })}>
+            <Choice key={c.id} selected={selectedCourses.includes(c.id)} onClick={() => toggleCourse(c.id)}>
               <div className="font-medium">{c.label}</div>
               <div className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{c.description}</div>
               <div className="mt-2 flex flex-wrap gap-1">

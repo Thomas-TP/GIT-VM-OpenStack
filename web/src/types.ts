@@ -9,7 +9,7 @@ export interface User {
 export interface PerfPreset {
   id: string;
   label: string;
-  instanceType: string;
+  flavorStem?: string;
   vcpu: number;
   ramGb: number;
   hourlyUsd: number;

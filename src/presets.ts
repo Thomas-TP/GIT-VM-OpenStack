@@ -236,14 +236,18 @@ export const COURSES: Record<string, CoursePreset> = {
   },
 };
 
-export const isValidCourse = (id: string) => id === '' || Object.prototype.hasOwnProperty.call(COURSES, id);
+// A course value is '' or a comma-separated list of known course ids (multi-select).
+export const courseIds = (v: string | null | undefined): string[] =>
+  (v ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+export const isValidCourse = (id: string) =>
+  id === '' || courseIds(id).every((c) => Object.prototype.hasOwnProperty.call(COURSES, c));
 
-// cloud-init user-data installing a course's tools (Linux only). undefined if no course.
-export function buildCourseUserData(courseId: string | null | undefined): string | undefined {
-  if (!courseId) return undefined;
-  const c = COURSES[courseId];
-  if (!c) return undefined;
-  return `${COURSE_SCRIPT_HEADER}\n${c.install}\n`;
+// cloud-init user-data installing the tools of one or more courses (Linux only).
+// undefined if none. Multiple courses share one header, installs concatenated.
+export function buildCourseUserData(course: string | null | undefined): string | undefined {
+  const installs = courseIds(course).map((id) => COURSES[id]?.install).filter(Boolean) as string[];
+  if (!installs.length) return undefined;
+  return `${COURSE_SCRIPT_HEADER}\n${installs.join('\n')}\n`;
 }
 
 // Windows (Chocolatey) package mapping per course — best effort equivalents.
@@ -260,9 +264,10 @@ const COURSE_WIN: Record<string, string> = {
   python: 'python',
 };
 
-// PowerShell that installs Chocolatey then the course's tools (Windows). undefined if none.
-export function buildWindowsCourseInstall(courseId: string | null | undefined): string | undefined {
-  const pkgs = courseId ? COURSE_WIN[courseId] : undefined;
+// PowerShell that installs Chocolatey then the courses' tools (Windows). undefined if none.
+// Merges the Chocolatey packages of all selected courses (de-duplicated).
+export function buildWindowsCourseInstall(course: string | null | undefined): string | undefined {
+  const pkgs = [...new Set(courseIds(course).flatMap((id) => (COURSE_WIN[id] ?? '').split(' ').filter(Boolean)))].join(' ');
   if (!pkgs) return undefined;
   return [
     "Set-ExecutionPolicy Bypass -Scope Process -Force",
