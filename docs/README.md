@@ -11,7 +11,7 @@
 | Comprendre et travailler sur le projet | [`../AGENTS.md`](../AGENTS.md) |
 | Voir l'architecture (flux, données, sécurité) | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
 | Déployer / publier | [`DEPLOYMENT.md`](DEPLOYMENT.md) |
-| Gérer variables, secrets, IAM, Entra | [`CONFIGURATION.md`](CONFIGURATION.md) |
+| Gérer variables, secrets, OpenStack, Entra | [`CONFIGURATION.md`](CONFIGURATION.md) |
 | Contribuer (workflow, conventions) | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) |
 | Monitoring Grafana (local) | [`../monitoring/README.md`](../monitoring/README.md) |
 | Décisions techniques | [`adr/`](adr/) |
@@ -28,7 +28,7 @@ monitoring/                   Grafana local (docker-compose, dashboard, datasour
 docs/
   ARCHITECTURE.md             Architecture, flux, modèle de données, sécurité, API
   DEPLOYMENT.md               Pipeline CI/CD (Cloudflare Workers Builds), publication, rollback
-  CONFIGURATION.md            Variables, secrets, IAM AWS, Entra, EmailJS, rotation
-  adr/                        Décisions d'architecture (ADR 0001 → 0008)
+  CONFIGURATION.md            Variables, secrets, credentials OpenStack, Entra, EmailJS, rotation
+  adr/                        Décisions d'architecture (ADR 0001 → 0010)
   analyse/                    Notes d'analyse (état des lieux, dette technique)
 ```

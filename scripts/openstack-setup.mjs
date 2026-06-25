@@ -5,7 +5,7 @@
 //
 //   node scripts/openstack-setup.mjs
 //
-// Idempotent. Replaces the AWS scripts/aws-setup.mjs + aws-open-rdp.mjs.
+// Idempotent. Run once when setting up a new project.
 import { osAuth, osFetch } from './_os.mjs';
 
 const SG_NAME = process.env.OS_SECURITY_GROUP_NAME || 'git-vm-portal';

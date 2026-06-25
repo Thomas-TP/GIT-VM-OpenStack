@@ -2,6 +2,9 @@
 
 > Chaque entrée : impact, effort, et **action recommandée**. Tri par priorité.
 > Effort : XS (<1h) · S (½ j) · M (1 j) · L (2 j+).
+>
+> **Note (2026-06-25)** : registre **historique**. La plateforme tourne sur **OpenStack
+> (Infomaniak)** — voir [ADR 0010](../adr/0010-migration-openstack.md) ; les termes infra sont transposés.
 
 ## 🔴 P0 — Bloquants recevabilité (chemin critique)
 
@@ -45,7 +48,7 @@
 
 ### D7. Monitoring des ressources absent
 - **Impact** : Must M11 (partie « ressources ») + critère Monitoring (20 %).
-- **Action rapide** : CloudWatch basic CPU lu via API et affiché. **Action « pro »** : `node_exporter`
+- **Action rapide** : CPU via Gnocchi (Infomaniak) lu par API et affiché. **Action « pro »** : `node_exporter`
   via cloud-init + mini Prometheus + Grafana (bonus archi, open source, valorisé marché). **Effort : M→L.**
 
 ### D8. Isolation réseau non segmentée
@@ -63,7 +66,7 @@
 |---|---|---|:--:|
 | D10 | Extinction week-end + redémarrage matinal | Affiner les crons (jour/heure) | S |
 | D11 | Notif avant échéance (J-1) | Email depuis `reconcile()` quand `end_date - now < 24h` | XS |
-| D12 | Parsing XML EC2 par regex (`aws.ts`) | Fragile si AWS change le format ; OK pour le hackathon, **documenter le risque** dans le runbook | XS (doc) |
+| D12 | Client OpenStack REST (`openstack.ts`) | Réponses JSON parsées nativement ; robuste | — |
 | D13 | `start/stop` n'attendent pas l'état réel | Déjà rattrapé par le réconciliateur ; OK | — |
 | D14 | Secrets : pas de rotation | Documenter la procédure de rotation `wrangler secret` | XS |
 | D15 | Tests : couverture limitée (crypto, presets) | Ajouter tests sur le cycle de vie (dates, auto-destroy) | M |
@@ -71,9 +74,9 @@
 
 ## Risques transverses
 
-- **R1 — Démo live** : un appel AWS qui échoue en direct = démo cassée. → **Plan B obligatoire**
+- **R1 — Démo live** : un appel OpenStack qui échoue en direct = démo cassée. → **Plan B obligatoire**
   (vidéo + env. de secours pré-provisionné). Garde-le à jour dès maintenant.
-- **R2 — Quotas/coûts AWS** : surveiller le nombre d'instances ; l'auto-destroy + le stop nocturne
+- **R2 — Quotas/coûts OpenStack** : surveiller le nombre d'instances ; l'auto-destroy + le stop nocturne
   sont les garde-fous. Vérifier les limites du compte avant la démo.
 - **R3 — Git local non initialisé** : le repo téléchargé n'a pas de `.git`. Reconnecter au remote
   GitHub avant de committer (voir roadmap J1).

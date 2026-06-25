@@ -85,7 +85,7 @@ export const STORAGE: Record<string, StoragePreset> = {
 
 // All `ami` values are concrete Infomaniak Glance image UUIDs (dc3-a), discovered
 // via `node scripts/openstack-discover.mjs`. Refresh them if images are retired.
-// Note vs AWS: Amazon Linux & AlmaLinux aren't offered by Infomaniak — replaced
+// Note: Amazon Linux & AlmaLinux aren't offered by Infomaniak — replaced
 // by additional Ubuntu/Debian/Rocky options (all with well-known cloud users).
 // One entry per distro (no duplicates) — newest version of each, with its known
 // cloud-init login user. UUIDs from openstack-discover.mjs (dc3-a).

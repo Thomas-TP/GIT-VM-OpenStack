@@ -26,7 +26,7 @@ actuel n'a que `member`/`admin` et des demandes unitaires.
 - (+) Couvre M5 et prépare l'isolation **par classe** (un `group_id` = une classe = un security group, voir roadmap D8).
 - (+) Le dashboard coûts par cours (S1) s'appuie naturellement sur `group_id`/`course`.
 - (−) Approbation par lot = penser à l'idempotence (réutiliser le réconciliateur pour le provisioning des N).
-- (−) Garde-fou : plafonner N (ex. ≤ 30) pour éviter de saturer le quota AWS pendant la démo.
+- (−) Garde-fou : plafonner N (ex. ≤ 30) pour éviter de saturer le quota OpenStack pendant la démo.
 
 ## Alternatives écartées
 

@@ -271,7 +271,7 @@ export async function setSnapshotOnDelete(env: Env, owner: string, id: number, e
   await env.DB.prepare(`UPDATE vm_requests SET snapshot_on_delete = ?3 WHERE id = ?1 AND user_email = ?2`).bind(id, owner, enabled ? 1 : 0).run();
 }
 
-// Delete one snapshot row (owner-scoped at the route; AWS deletion done by the caller).
+// Delete one snapshot row (owner-scoped at the route; image deletion done by the caller).
 export async function deleteSnapshotRow(env: Env, id: number): Promise<void> {
   await env.DB.prepare(`DELETE FROM snapshots WHERE id = ?1`).bind(id).run();
 }
@@ -647,7 +647,7 @@ export interface ExpirableVm {
 }
 
 // Active VMs whose end_date has passed and not yet processed — to TERMINATE (ADR 0008,
-// supersede ADR 0004). The key name lets the reconciler delete the AWS key pair too.
+// supersede ADR 0004). The key name lets the reconciler delete the SSH key pair too.
 export async function listExpired(env: Env): Promise<ExpirableVm[]> {
   const res = await env.DB.prepare(
     `SELECT r.id, r.user_email, r.end_date, v.aws_instance_id, v.state, v.ssh_key_name, r.snapshot_on_delete

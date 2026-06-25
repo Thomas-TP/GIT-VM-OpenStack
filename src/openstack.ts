@@ -1,18 +1,18 @@
 import type { Env } from './types';
 
 // Minimal OpenStack client for Infomaniak Public Cloud (pub1 / dc3-a).
-// Replaces the former AWS EC2 client. Talks to Keystone (auth), Nova (compute),
+// Talks to Keystone (auth), Nova (compute),
 // Glance (images/snapshots) and Neutron (network) over their REST APIs.
 //
 // Design notes:
 // - The DB columns are still named `aws_instance_id` / `aws_snapshot_id` (the
-//   schema is shared with the original AWS project, additive-migrations only).
+//   schema predates this client; additive migrations only).
 //   Here they hold an OpenStack **server UUID** and a Glance **image UUID**.
 // - The exported function names mirror the old aws.ts on purpose, so the rest of
 //   the worker (index.ts) keeps working with minimal changes.
 // - Public IP: Infomaniak's `ext-net1` is a SHARED network whose subnets are
 //   public IPv4 ranges. Booting an instance directly on it yields a routable
-//   public IP — no floating-IP allocation needed (the EC2 "public IP" analog).
+//   public IP — no floating-IP allocation needed.
 
 // ---- Keystone auth (token + endpoint catalog, cached per isolate) --------
 interface OsSession {
@@ -117,7 +117,7 @@ async function osJson<T = any>(env: Env, service: string, path: string, init: Re
 }
 
 // ---- Keypairs (Nova generates the keypair and returns the private key once,
-// exactly like EC2 CreateKeyPair returns keyMaterial). RSA only. ------------
+// Nova returns the private key once at creation). RSA only. ------------------
 export interface KeyPair {
   keyName: string;
   privateKey: string;
@@ -214,7 +214,7 @@ export async function launchInstance(env: Env, p: LaunchParams): Promise<LaunchR
 }
 
 // ---- State -------------------------------------------------------------
-// Map Nova server status to the AWS-style tokens the rest of the worker uses
+// Map Nova server status to the internal state tokens the rest of the worker uses
 // ('running' | 'stopped' | 'pending' | 'terminated' | 'error' | ...).
 function mapState(status: string): string {
   switch ((status || '').toUpperCase()) {
@@ -296,14 +296,14 @@ export async function rebootInstance(env: Env, instanceId: string): Promise<void
   await serverAction(env, instanceId, { reboot: { type: 'SOFT' } });
 }
 
-// ---- Snapshots (Glance image of the server, the OpenStack analog of an AMI) --
+// ---- Snapshots (Glance image of the server) ----------------------------
 export interface RootVolume {
   volumeId?: string;
   rootDevice?: string;
   architecture?: string;
   sizeGb?: number;
 }
-// No separate EBS volume on OpenStack: the snapshot is taken from the server
+// No separate disk resource to snapshot: it is taken from the server
 // itself (createImage). We return the server id as the "volumeId" so the shared
 // call sites keep working.
 export async function describeRootVolume(env: Env, instanceId: string): Promise<RootVolume> {
@@ -353,7 +353,7 @@ export async function deleteSnapshot(env: Env, imageId: string): Promise<void> {
 }
 
 // On OpenStack a snapshot image is directly bootable — no separate "register"
-// step (unlike AWS RegisterImage). Pass the image id straight through.
+// step: a Glance snapshot image is directly bootable. Pass the image id straight through.
 export async function registerImageFromSnapshot(
   env: Env,
   _name: string,

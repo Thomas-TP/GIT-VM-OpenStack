@@ -1,6 +1,5 @@
 // OPTIONAL hardening: lock the egress of the `git-vm-portal` security group to an
 // allowlist (network-level, un-bypassable by a sudo/admin user inside the VM).
-// Mirrors the AWS scripts/aws-harden-sg.mjs.
 //
 // Allows out: DNS 53 -> Cloudflare for Families ONLY (1.1.1.3 / 1.0.0.3),
 // HTTP/HTTPS 80/443, NTP 123, SSH 22, DHCP 67/68. Everything else (torrents/P2P,

@@ -29,7 +29,7 @@ Le tout sur **Cloudflare Workers**.
 - 💾 **Snapshots (images Glance)** : créer / supprimer, **snapshot auto avant suppression**,
   **restaurer** une VM depuis un snapshot à la création.
 - ⏱️ **Cycle de vie** : dates obligatoires, **suppression auto à l'échéance**, **arrêt sur
-  inactivité** (CPU CloudWatch), extinction nocturne, **planification** start/stop par VM.
+  inactivité** (CPU, optionnel), extinction nocturne, **planification** start/stop par VM.
 - 🛡️ **Durcissement sécurité** : DNS filtré (Cloudflare for Families), blocage P2P/torrent, hostname
   verrouillé, **+ egress du Security Group verrouillé** (filtrage réseau non contournable).
 - 📊 **Console admin unifiée** (demandes + machines), **monitoring Grafana**, export CSV, **audit**.
@@ -82,7 +82,7 @@ Détails et diagrammes : [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 ## 📁 Structure
 
 ```
-src/            Worker Cloudflare (API, OIDC, AWS, email, D1, cron)
+src/            Worker Cloudflare (API, OIDC, OpenStack, email, D1, cron)
 migrations/     Migrations de schéma D1
 web/            SPA React (build → web/dist, servie en static assets)
 scripts/        Helpers OpenStack one-off (discover images/réseaux, setup SG, harden egress)
@@ -112,7 +112,7 @@ Détail, credentials OpenStack, rotation : [`docs/CONFIGURATION.md`](docs/CONFIG
 | [CLAUDE.md](CLAUDE.md) | Redirige vers AGENTS.md |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Architecture, flux, modèle de données, sécurité |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Pipeline CI/CD, publication, rollback |
-| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Variables, secrets, IAM AWS, Entra, EmailJS, rotation |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Variables, secrets, credentials OpenStack, Entra, EmailJS, rotation |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Workflow, conventions, qualité, PR |
 | [docs/adr/](docs/adr/) | Décisions d'architecture (ADR) |
 

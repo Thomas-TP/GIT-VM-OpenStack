@@ -4,8 +4,6 @@
 //
 //   # source the openrc first (sets OS_* env), then:
 //   node scripts/openstack-discover.mjs
-//
-// Replaces the AWS scripts/aws-amis.mjs + aws-discover.mjs.
 import { osAuth, osFetch } from './_os.mjs';
 
 const ctx = await osAuth();

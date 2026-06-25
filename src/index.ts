@@ -214,7 +214,7 @@ function windowsHardeningLines(): string[] {
     "try { New-NetFirewallRule -DisplayName 'gitvm-block-torrent-udp' -Direction Outbound -Action Block -Protocol UDP -RemotePort 6881-6889,6969,51413,1337 } catch {}",
   ];
 }
-// Enable Remote Desktop. Unlike EC2 Windows AMIs, Infomaniak Windows images do NOT
+// Enable Remote Desktop. Infomaniak Windows images do NOT
 // enable RDP by default — without this there is no listener on 3389 and the client
 // fails with "cannot connect" before ever reaching the password prompt.
 function windowsRdpEnableLines(): string[] {
@@ -225,7 +225,7 @@ function windowsRdpEnableLines(): string[] {
   ];
 }
 
-// Create the SSH key + EC2 instance for a request. Shared by approve + retry.
+// Create the SSH key + server for a request. Shared by approve + retry.
 // Windows VMs additionally get an Administrator password set via UserData and
 // stored encrypted (no SSH; the user connects over RDP).
 async function provisionRequest(env: Env, req: any): Promise<string> {
@@ -295,7 +295,7 @@ async function provisionRequest(env: Env, req: any): Promise<string> {
   return instanceId;
 }
 
-// Take an EBS snapshot of a VM's root volume (best-effort; used by auto-on-delete).
+// Take a snapshot (Glance image) of a VM (best-effort; used by auto-on-delete).
 async function autoSnapshot(env: Env, requestId: number, owner: string, instanceId: string): Promise<void> {
   try {
     const rv = await describeRootVolume(env, instanceId);
@@ -473,7 +473,7 @@ app.post('/api/requests/batch', apiAuth, async (c) => {
 app.delete('/api/requests/:id', apiAuth, async (c) => {
   const user = c.get('user');
   const id = Number(c.req.param('id'));
-  // Capture snapshots before the row is gone, then cascade-delete them (AWS + DB).
+  // Capture snapshots before the row is gone, then cascade-delete them (OpenStack + DB).
   const snaps = await listSnapshotsForRequest(c.env, id);
   const ok = await deleteRequest(c.env, user.email, id);
   if (!ok) return c.json({ error: 'not_deletable' }, 409);
@@ -787,7 +787,7 @@ app.post('/api/requests/:id/reset', apiAuth, async (c) => {
   }
 });
 
-// ---- Snapshots (EBS) ----------------------------------------------------
+// ---- Snapshots (Glance images) ------------------------------------------
 app.post('/api/requests/:id/snapshot', apiAuth, async (c) => {
   const id = Number(c.req.param('id'));
   const ctx = await authorizeVm(c, id);
@@ -846,7 +846,7 @@ app.post('/api/requests/:id/snapshot-on-delete', apiAuth, async (c) => {
   return c.json({ ok: true });
 });
 
-// Delete one snapshot (AWS EBS snapshot + DB row).
+// Delete one snapshot (Glance image + DB row).
 app.delete('/api/requests/:id/snapshots/:sid', apiAuth, async (c) => {
   const user = c.get('user');
   const id = Number(c.req.param('id'));
@@ -861,7 +861,7 @@ app.delete('/api/requests/:id/snapshots/:sid', apiAuth, async (c) => {
   return c.json({ ok: true });
 });
 
-// Live AWS state (state + public IP + uptime) — used by the detail page.
+// Live OpenStack state (state + public IP + uptime) — used by the detail page.
 app.get('/api/requests/:id/live', apiAuth, async (c) => {
   const id = Number(c.req.param('id'));
   const ctx = await authorizeVm(c, id);
@@ -1301,14 +1301,14 @@ app.post('/api/admin/requests/:id/suggest', apiAdmin, async (c) => {
 app.all('*', (c) => c.env.ASSETS.fetch(c.req.raw));
 
 // ---- Scheduled: reconcile state + scheduled stop ------------------------
-// Reconcile DB against AWS: promote provisioning->active, sync running/stopped
+// Reconcile DB against OpenStack: promote provisioning->active, sync running/stopped
 // state, and detect drift (instances terminated outside the portal).
 async function reconcile(env: Env): Promise<void> {
   let managed: Record<string, string> = {};
   try {
     managed = await listManagedInstances(env);
   } catch {
-    /* AWS unreachable this tick — skip */
+    /* OpenStack unreachable this tick — skip */
   }
   const rows = await listActiveVms(env);
   for (const row of rows) {
@@ -1415,7 +1415,7 @@ async function scheduledStop(env: Env): Promise<void> {
   }
 }
 
-// Auto-stop VMs idle (low CPU) for IDLE_STOP_HOURS. Best-effort; needs CloudWatch read.
+// Auto-stop VMs idle (low CPU) for IDLE_STOP_HOURS. Best-effort; needs CPU telemetry (Gnocchi).
 // The user can restart from the portal at any time.
 async function enforceIdleStop(env: Env): Promise<void> {
   if (env.IDLE_STOP !== 'true') return;
@@ -1433,7 +1433,7 @@ async function enforceIdleStop(env: Env): Promise<void> {
         await audit(env, 'system', 'vm.idle_stop', `req:${vm.id}`, `cpuMax=${cpu.max.toFixed(1)}%`);
       }
     } catch {
-      /* skip this tick (e.g. CloudWatch permission missing) */
+      /* skip this tick (e.g. CPU telemetry unavailable) */
     }
   }
 }
@@ -1487,7 +1487,7 @@ async function enforceExpiry(env: Env): Promise<void> {
   }
 }
 
-// Poll pending EBS snapshots and mark them completed/error.
+// Poll pending snapshot images and mark them completed/error.
 async function syncSnapshots(env: Env): Promise<void> {
   for (const s of await listPendingSnapshots(env)) {
     try {

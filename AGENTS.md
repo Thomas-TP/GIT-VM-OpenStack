@@ -78,7 +78,7 @@ src/                      WORKER (API + cron)
                           que l'ancien aws.ts (launchInstance, describeInstance, createSnapshot…).
   presets.ts              Catalogue PERF × STORAGE × OS + COURSES + coûts. SOURCE DE VÉRITÉ.
   email.ts                Notifications EmailJS · sentry.ts erreurs · types.ts Env + types worker
-migrations/               D1 (additif) : 0001 init … 0018 vm.name (schéma partagé avec le projet AWS)
+migrations/               D1 (additif) : 0001 init … 0018 vm.name (schéma hérité, migrations additives)
 web/src/                  SPA REACT (voir §9)
 scripts/                  Helpers OpenStack one-off (Node, creds depuis l'env / openrc) :
   _os.mjs                 Auth Keystone + osFetch partagés

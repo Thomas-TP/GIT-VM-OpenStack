@@ -104,7 +104,7 @@ met le token en cache, puis appelle les services depuis le **catalogue** :
 - **Neutron** (`network`) : rattachement au réseau public `ext-net1`, security group.
 
 Le rôle « member » par défaut du projet Infomaniak suffit (création/gestion de serveurs, keypairs,
-images, lecture réseau). Aucune politique IAM à écrire (contrairement à AWS).
+images, lecture réseau). Aucune politique IAM à écrire (le rôle member du projet suffit).
 
 ### 5.2 Télémétrie CPU (arrêt sur inactivité)
 
@@ -117,7 +117,7 @@ cumulatif `cpu` en % d'utilisation fiable est fragile sur cloud public (risque d
 
 - `ext-net1` (`OS_NETWORK_ID`) est **partagé** et porte des **sous-réseaux IPv4 publics**
   (195.15.x / 188.213.x). Une VM rattachée directement obtient une **IP publique routable** — pas de
-  floating IP, pas de routeur (équivalent de l'auto-public-IP EC2).
+  floating IP, pas de routeur (IP publique directe).
 - Le security group `git-vm-portal` (créé par `scripts/openstack-setup.mjs`) ouvre **en entrée**
   SSH 22, RDP 3389, ICMP. L'**egress** reste ouvert par défaut (installs de cours). Pour le verrouiller
   en liste blanche (DNS Cloudflare uniquement, 80/443/NTP/SSH/DHCP) : `scripts/openstack-harden-sg.mjs`.
